@@ -38,36 +38,67 @@ const Dashboard = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Validate file size (50MB max)
+    const maxSize = 50 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error('File too large. Maximum size is 50MB');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file type
+    const validTypes = ['.pdf', '.xlsx', '.xls', '.docx', '.doc', '.txt', '.csv'];
+    const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+    if (!validTypes.includes(fileExt)) {
+      toast.error('Unsupported file type. Please upload PDF, Excel, Word, Text, or CSV files.');
+      e.target.value = '';
+      return;
+    }
+
+    console.log(`[UPLOAD START] File: ${file.name}, Size: ${(file.size / 1024).toFixed(2)}KB`);
+    
     // Show loading toast
     toast.loading('Uploading document...', { id: 'upload' });
     setLoading(true);
     
     const formData = new FormData();
     formData.append('file', file);
+    const startTime = Date.now();
 
     try {
       const response = await axios.post(`${API}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000, // 30 second timeout
         onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log(`Upload progress: ${percentCompleted}%`);
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`Upload progress: ${percentCompleted}%`);
+          }
         }
       });
+      
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[UPLOAD SUCCESS] Completed in ${elapsed}s`);
+      console.log('Response:', response.data);
       
       setUploadedFile(file.name);
       setDocumentId(response.data.document_id);
       
-      // Store content for later use
-      if (response.data.content_length) {
-        console.log('Document uploaded with', response.data.content_length, 'characters');
+      toast.success(`✓ ${file.name} uploaded successfully! (${elapsed}s)`, { id: 'upload' });
+    } catch (error) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.error(`[UPLOAD ERROR] Failed after ${elapsed}s:`, error);
+      
+      let errorMsg = 'Upload failed';
+      if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Upload timeout. File may be too large or server is busy.';
+      } else if (error.response?.data?.detail) {
+        errorMsg = error.response.data.detail;
+      } else if (error.message) {
+        errorMsg = error.message;
       }
       
-      toast.success('Document uploaded successfully! ✓', { id: 'upload' });
-    } catch (error) {
-      console.error('Upload error:', error);
-      const errorMsg = error.response?.data?.detail || error.message || 'Upload failed';
-      toast.error('Upload failed: ' + errorMsg, { id: 'upload' });
+      toast.error(errorMsg, { id: 'upload', duration: 5000 });
     } finally {
       setLoading(false);
       // Reset file input
