@@ -185,13 +185,15 @@ const ResearchWorkspace = () => {
                   <Card 
                     key={doc.id || index} 
                     onClick={() => openDocument(doc)}
-                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-blue-500/30" 
+                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-blue-500/50 hover:bg-blue-500/5 group" 
                     data-testid={`document-${index}`}
                   >
                     <div className="flex items-start space-x-3 mb-4">
-                      <FileText className="w-5 h-5 text-blue-400 mt-1" />
+                      <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+                        <FileText className="w-5 h-5 text-blue-400" />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold truncate mb-1">{doc.filename}</h3>
+                        <h3 className="font-semibold truncate mb-1 group-hover:text-blue-300 transition-colors">{doc.filename}</h3>
                         <p className="text-sm text-gray-400">{doc.file_type?.toUpperCase()}</p>
                       </div>
                     </div>
@@ -199,13 +201,10 @@ const ResearchWorkspace = () => {
                       <div className="text-xs text-gray-500">
                         {formatDate(doc.upload_date)}
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                      >
-                        Open →
-                      </Button>
+                      <div className="flex items-center space-x-2 text-xs text-blue-400 group-hover:text-blue-300 transition-colors">
+                        <span>Open</span>
+                        <span className="group-hover:translate-x-1 transition-transform">→</span>
+                      </div>
                     </div>
                   </Card>
                 ))
