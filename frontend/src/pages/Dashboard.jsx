@@ -350,7 +350,7 @@ Key Highlights:
                   key={index}
                   data-testid={`tool-${tool.type}-btn`}
                   onClick={() => analyzeText(tool.type, tool.path)}
-                  className={`w-full glass-panel p-4 flex items-center space-x-3 hover-lift group text-left relative ${
+                  className={`w-full glass-panel p-4 flex items-start space-x-3 hover-lift group text-left relative ${
                     tool.highlight ? 'border-blue-500/30' : ''
                   }`}
                 >
@@ -359,12 +359,15 @@ Key Highlights:
                       <span className="text-xs px-2 py-1 bg-blue-500 text-white rounded-full font-medium">NEW</span>
                     </div>
                   )}
-                  <div className={`w-10 h-10 bg-gradient-to-br rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform border border-white/10 ${
+                  <div className={`w-10 h-10 bg-gradient-to-br rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform border border-white/10 flex-shrink-0 ${
                     tool.highlight ? 'from-blue-500/30 to-purple-500/30' : 'from-blue-500/20 to-purple-500/20'
                   }`}>
                     <div className="text-blue-400">{tool.icon}</div>
                   </div>
-                  <span className="font-medium">{tool.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium mb-1">{tool.label}</div>
+                    <div className="text-xs text-gray-400 leading-relaxed">{tool.description}</div>
+                  </div>
                 </button>
               ))}
             </div>
