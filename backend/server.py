@@ -208,19 +208,88 @@ async def upload_document(file: UploadFile = File(...)):
 
 @api_router.post("/analyze/statement")
 async def analyze_statement(request: AnalysisRequest):
-    """Analyze financial statement"""
-    prompt = f"""Analyze this financial statement in detail:
+    """Analyze financial statement with deep insights for 10K, 10Q, Annual Reports"""
+    
+    # Detect document type for specialized prompts
+    content_lower = request.content.lower()
+    is_10k = '10-k' in content_lower or 'form 10-k' in content_lower
+    is_10q = '10-q' in content_lower or 'form 10-q' in content_lower
+    is_annual = 'annual report' in content_lower
+    
+    doc_type = "10-K filing" if is_10k else "10-Q filing" if is_10q else "Annual Report" if is_annual else "Financial Statement"
+    
+    prompt = f"""You are analyzing a {doc_type}. Provide COMPREHENSIVE financial analysis:
 
-{request.content}
+DOCUMENT CONTENT:
+{request.content[:15000]}  
 
-Provide:
-1. Key line items explanation
-2. Year-over-year trends
-3. Margin analysis
-4. Unusual movements or red flags
-5. Overall financial health assessment
+REQUIRED ANALYSIS (respond in valid JSON format):
 
-Format as JSON with sections: summary, line_items, trends, margins, red_flags, health_score (0-100)"""
+{{
+  "summary": "Executive summary highlighting key findings, trends, and critical insights (5-7 sentences)",
+  
+  "line_items": {{
+    "Revenue": "Value with YoY/QoQ comparison",
+    "Gross Profit": "Value with margin %",
+    "Operating Income": "Value with margin %",
+    "Net Income": "Value with margin %",
+    "EPS": "Value with growth %",
+    "Total Assets": "Value",
+    "Total Liabilities": "Value",
+    "Shareholders Equity": "Value",
+    "Cash and Equivalents": "Value",
+    "Free Cash Flow": "Value if available"
+  }},
+  
+  "trends": {{
+    "revenue": [
+      {{"period": "Q1 2023", "value": 550}},
+      {{"period": "Q2 2023", "value": 580}},
+      {{"period": "Q3 2023", "value": 610}},
+      {{"period": "Q4 2023", "value": 760}}
+    ],
+    "growth": [
+      {{"metric": "Revenue Growth", "value": 15}},
+      {{"metric": "Gross Margin", "value": 48}},
+      {{"metric": "Operating Margin", "value": 18}},
+      {{"metric": "Net Margin", "value": 13}},
+      {{"metric": "ROE", "value": 22}}
+    ]
+  }},
+  
+  "margins": {{
+    "data": [
+      {{"name": "Gross Margin", "current": 48, "previous": 45.7, "industry": 42}},
+      {{"name": "Operating Margin", "current": 18, "previous": 16.5, "industry": 15}},
+      {{"name": "Net Margin", "current": 13, "previous": 11.8, "industry": 10}}
+    ]
+  }},
+  
+  "financial_ratios": [
+    {{"category": "Liquidity", "score": 85}},
+    {{"category": "Profitability", "score": 90}},
+    {{"category": "Efficiency", "score": 78}},
+    {{"category": "Leverage", "score": 75}},
+    {{"category": "Growth", "score": 88}}
+  ],
+  
+  "red_flags": "List any concerning trends: working capital issues, margin compression, cash flow problems, accounting irregularities, or state 'No significant red flags detected'",
+  
+  "health_score": 82,
+  
+  "key_insights": [
+    "Strategic initiative or market position insight",
+    "Operational efficiency observation",
+    "Capital allocation or liquidity insight",
+    "Risk factor or competitive pressure"
+  ],
+  
+  "segment_analysis": "Analysis of business segments if mentioned in document",
+  
+  "management_discussion": "Key points from MD&A section if available"
+}}
+
+CRITICAL: Respond ONLY with valid JSON. Extract actual numbers from the document. If data is missing, use reasonable estimates based on context."""
     
     result_text = await get_llm_analysis(prompt)
     
@@ -234,13 +303,15 @@ Format as JSON with sections: summary, line_items, trends, margins, red_flags, h
     analysis = Analysis(
         document_id=request.document_id,
         analysis_type="statement",
-        content=request.content,
+        content=request.content[:5000],  # Store first 5000 chars
         result=result
     )
     
     analysis_dict = analysis.model_dump()
     analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
     await db.analyses.insert_one(analysis_dict)
+    
+    logger.info(f"Analysis saved with ID: {analysis.id}")
     
     return {"success": True, "analysis_id": analysis.id, "result": result}
 
