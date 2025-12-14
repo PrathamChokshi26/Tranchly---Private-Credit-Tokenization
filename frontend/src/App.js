@@ -11,6 +11,7 @@ import KPIDashboard from './pages/KPIDashboard';
 import RedFlags from './pages/RedFlags';
 import Simulator from './pages/Simulator';
 import ResearchWorkspace from './pages/ResearchWorkspace';
+import ConsistencyEngine from './pages/ConsistencyEngine';
 import { Toaster } from 'sonner';
 
 function App() {
