@@ -31,6 +31,7 @@ function App() {
           <Route path="/simulator" element={<Simulator />} />
           <Route path="/workspace" element={<ResearchWorkspace />} />
           <Route path="/consistency" element={<ConsistencyEngine />} />
+          <Route path="/earnings-quality" element={<EarningsQuality />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" richColors />
