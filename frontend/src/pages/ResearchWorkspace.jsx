@@ -57,22 +57,31 @@ const ResearchWorkspace = () => {
 
   const openDocument = async (doc) => {
     try {
-      // Fetch full document content if not already loaded
-      if (!doc.content) {
-        toast.loading('Loading document...', { id: 'load-doc' });
-        const response = await axios.get(`${API}/documents/${doc.id}`);
-        doc = response.data;
-        toast.success('Document loaded!', { id: 'load-doc' });
+      console.log('[OPEN DOC] Attempting to open:', doc.filename, 'ID:', doc.id);
+      
+      // Fetch full document content
+      toast.loading('Loading document...', { id: 'load-doc' });
+      
+      const response = await axios.get(`${API}/documents/${doc.id}`);
+      console.log('[OPEN DOC] Retrieved document, content length:', response.data.content?.length);
+      
+      if (!response.data.content) {
+        throw new Error('Document content is empty');
       }
       
-      // Store document content and navigate to dashboard for analysis
-      sessionStorage.setItem('analysisContent', doc.content || 'Document content');
-      sessionStorage.setItem('documentId', doc.id);
-      sessionStorage.setItem('documentFilename', doc.filename);
-      toast.success(`Opening ${doc.filename}`);
+      // Store document content and metadata
+      sessionStorage.setItem('analysisContent', response.data.content);
+      sessionStorage.setItem('documentId', response.data.id);
+      sessionStorage.setItem('documentFilename', response.data.filename);
+      
+      toast.success(`Opening ${response.data.filename}`, { id: 'load-doc' });
+      
+      // Navigate to dashboard
       navigate('/dashboard');
     } catch (error) {
-      toast.error('Failed to load document: ' + (error.response?.data?.detail || error.message));
+      console.error('[OPEN DOC ERROR]:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to load document';
+      toast.error(errorMsg, { id: 'load-doc' });
     }
   };
 
