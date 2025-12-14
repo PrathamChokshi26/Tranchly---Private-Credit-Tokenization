@@ -298,7 +298,12 @@ const ResearchWorkspace = () => {
                 </Card>
               ) : (
                 analyses.map((analysis, index) => (
-                  <Card key={analysis.id || index} className="glass-panel p-6 border-white/10 hover-lift cursor-pointer" data-testid={`analysis-${index}`}>
+                  <Card 
+                    key={analysis.id || index} 
+                    onClick={() => openAnalysis(analysis)}
+                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-blue-500/30" 
+                    data-testid={`analysis-${index}`}
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-3 mb-3">
