@@ -156,10 +156,16 @@ const ResearchWorkspace = () => {
                 <Card className="glass-panel p-12 border-white/10 col-span-full text-center">
                   <FileText className="w-16 h-16 mx-auto mb-4 text-gray-600" />
                   <p className="text-gray-400">No documents uploaded yet</p>
+                  <p className="text-sm text-gray-500 mt-2">Upload documents from the dashboard to start analyzing</p>
                 </Card>
               ) : (
                 documents.map((doc, index) => (
-                  <Card key={doc.id || index} className="glass-panel p-6 border-white/10 hover-lift" data-testid={`document-${index}`}>
+                  <Card 
+                    key={doc.id || index} 
+                    onClick={() => openDocument(doc)}
+                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-blue-500/30" 
+                    data-testid={`document-${index}`}
+                  >
                     <div className="flex items-start space-x-3 mb-4">
                       <FileText className="w-5 h-5 text-blue-400 mt-1" />
                       <div className="flex-1 min-w-0">
@@ -167,8 +173,17 @@ const ResearchWorkspace = () => {
                         <p className="text-sm text-gray-400">{doc.file_type?.toUpperCase()}</p>
                       </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {formatDate(doc.upload_date)}
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-500">
+                        {formatDate(doc.upload_date)}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                      >
+                        Open →
+                      </Button>
                     </div>
                   </Card>
                 ))
