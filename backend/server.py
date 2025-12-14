@@ -152,7 +152,17 @@ def extract_text_from_excel(file_bytes: bytes) -> str:
 
 @api_router.get("/")
 async def root():
-    return {"message": "Financial Research AI Platform API"}
+    return {"message": "Financial Research AI Platform API", "status": "online"}
+
+@api_router.get("/health")
+async def health_check():
+    """Quick health check endpoint"""
+    try:
+        # Test DB connection
+        await db.command("ping")
+        return {"status": "healthy", "database": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
 
 @api_router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
