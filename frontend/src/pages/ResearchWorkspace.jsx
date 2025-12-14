@@ -201,23 +201,58 @@ const ResearchWorkspace = () => {
                 <Card className="glass-panel p-12 border-white/10 text-center">
                   <Clock className="w-16 h-16 mx-auto mb-4 text-gray-600" />
                   <p className="text-gray-400">No analysis history yet</p>
+                  <p className="text-sm text-gray-500 mt-2">Start analyzing documents to build your research history</p>
                 </Card>
               ) : (
                 analyses.map((analysis, index) => (
-                  <Card key={analysis.id || index} className="glass-panel p-6 border-white/10 hover-lift" data-testid={`analysis-${index}`}>
+                  <Card key={analysis.id || index} className="glass-panel p-6 border-white/10 hover-lift cursor-pointer" data-testid={`analysis-${index}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded-full">
-                            {analysis.analysis_type}
+                        <div className="flex items-center space-x-3 mb-3">
+                          <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-xs font-medium rounded-full uppercase">
+                            {analysis.analysis_type?.replace(/_/g, ' ')}
                           </span>
                           <span className="text-xs text-gray-500">
                             {formatDate(analysis.created_at)}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-400 line-clamp-2">
-                          {analysis.content?.substring(0, 150)}...
-                        </p>
+                        <div className="mb-3">
+                          <p className="text-sm font-medium text-gray-300 mb-2">Input Content:</p>
+                          <p className="text-sm text-gray-400 line-clamp-2 bg-white/5 p-3 rounded-lg">
+                            {analysis.content?.substring(0, 200)}{analysis.content?.length > 200 ? '...' : ''}
+                          </p>
+                        </div>
+                        {analysis.result && (
+                          <div>
+                            <p className="text-sm font-medium text-gray-300 mb-2">Analysis Result:</p>
+                            <div className="bg-blue-500/5 border border-blue-500/20 p-4 rounded-lg">
+                              {typeof analysis.result === 'object' ? (
+                                <div className="space-y-2">
+                                  {analysis.result.summary && (
+                                    <p className="text-sm text-gray-300">{analysis.result.summary.substring(0, 200)}...</p>
+                                  )}
+                                  {analysis.result.analysis && (
+                                    <p className="text-sm text-gray-300">{analysis.result.analysis.substring(0, 200)}...</p>
+                                  )}
+                                  {analysis.result.health_score !== undefined && (
+                                    <div className="flex items-center space-x-2 mt-2">
+                                      <span className="text-xs text-gray-400">Health Score:</span>
+                                      <span className="text-sm font-semibold text-blue-400">{analysis.result.health_score}/100</span>
+                                    </div>
+                                  )}
+                                  {analysis.result.sentiment && (
+                                    <div className="flex items-center space-x-2 mt-2">
+                                      <span className="text-xs text-gray-400">Sentiment:</span>
+                                      <span className="text-sm font-semibold text-green-400">{analysis.result.sentiment}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-gray-300 line-clamp-3">{String(analysis.result).substring(0, 200)}...</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </Card>
