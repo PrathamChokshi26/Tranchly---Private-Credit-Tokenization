@@ -34,7 +34,7 @@ function App() {
           <Route path="/earnings-quality" element={<EarningsQuality />} />
         </Routes>
       </BrowserRouter>
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 }
