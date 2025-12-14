@@ -402,25 +402,59 @@ Key Highlights:
                         data-testid="file-input"
                         type="file"
                         onChange={handleFileUpload}
-                        accept=".pdf,.xlsx,.xls,.docx,.doc,.txt"
+                        accept=".pdf,.xlsx,.xls,.docx,.doc,.txt,.csv"
                         className="hidden"
                         id="file-upload"
                         disabled={loading}
                       />
-                      <label htmlFor="file-upload" className={loading ? 'cursor-wait' : 'cursor-pointer'}>
+                      <label htmlFor="file-upload" className={loading ? 'cursor-not-allowed' : 'cursor-pointer'}>
                         {loading ? (
                           <>
                             <div className="w-12 h-12 mx-auto mb-4 relative">
                               <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
                             </div>
-                            <p className="text-lg font-medium mb-2 text-blue-400">Uploading document...</p>
-                            <p className="text-sm text-gray-400">Please wait while we process your file</p>
+                            <p className="text-lg font-medium mb-2 text-blue-400">
+                              {uploadStatus === 'uploading' ? `Uploading... ${uploadProgress}%` : 'Processing...'}
+                            </p>
+                            <p className="text-sm text-gray-400 mb-4">
+                              {uploadStatus === 'uploading' 
+                                ? 'Transferring file to server' 
+                                : 'Extracting text from document'}
+                            </p>
+                            
+                            {/* Progress bar */}
+                            <div className="max-w-md mx-auto mb-4">
+                              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                                  style={{ width: `${uploadProgress}%` }}
+                                />
+                              </div>
+                            </div>
+                            
+                            {/* Cancel button */}
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                cancelUpload();
+                              }}
+                              className="text-sm text-red-400 hover:text-red-300 underline"
+                            >
+                              Cancel Upload
+                            </button>
+                            
+                            {retryCount > 0 && (
+                              <p className="text-xs text-yellow-400 mt-2">
+                                Retry attempt {retryCount}/3
+                              </p>
+                            )}
                           </>
                         ) : (
                           <>
                             <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
                             <p className="text-lg font-medium mb-2">Drop your file here or click to browse</p>
-                            <p className="text-sm text-gray-400">Supports PDF, Excel, Word, and Text files</p>
+                            <p className="text-sm text-gray-400 mb-3">Supports PDF, Excel, Word, Text, and CSV files</p>
+                            <p className="text-xs text-gray-500">Max size: 50MB • Auto-retry on failure</p>
                           </>
                         )}
                       </label>
@@ -432,7 +466,7 @@ Key Highlights:
                           <span className="text-sm">{uploadedFile}</span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span className="text-xs text-green-400">Ready</span>
+                          <span className="text-xs text-green-400">Ready for analysis</span>
                           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
                         </div>
                       </div>
