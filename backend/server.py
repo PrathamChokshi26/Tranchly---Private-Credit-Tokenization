@@ -523,6 +523,14 @@ async def get_documents():
     docs = await db.documents.find({}, {"_id": 0, "content": 0}).to_list(100)
     return {"documents": docs}
 
+@api_router.get("/documents/{document_id}")
+async def get_document(document_id: str):
+    """Get a specific document with full content"""
+    doc = await db.documents.find_one({"id": document_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
 @api_router.get("/analyses")
 async def get_analyses():
     """Get all analyses"""
