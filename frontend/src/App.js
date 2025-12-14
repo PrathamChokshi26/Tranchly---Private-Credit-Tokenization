@@ -12,6 +12,7 @@ import RedFlags from './pages/RedFlags';
 import Simulator from './pages/Simulator';
 import ResearchWorkspace from './pages/ResearchWorkspace';
 import ConsistencyEngine from './pages/ConsistencyEngine';
+import EarningsQuality from './pages/EarningsQuality';
 import { Toaster } from 'sonner';
 
 function App() {
