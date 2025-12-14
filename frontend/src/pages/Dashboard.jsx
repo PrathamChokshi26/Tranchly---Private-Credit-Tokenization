@@ -142,14 +142,64 @@ Key Highlights:
   };
 
   const tools = [
-    { icon: <FileText className="w-6 h-6" />, label: 'Financial Statement', path: '/analysis', type: 'statement' },
-    { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Analysis', path: '/earnings', type: 'earnings' },
-    { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Quality Score', path: '/earnings-quality', type: 'earnings_quality', highlight: true },
-    { icon: <BarChart3 className="w-6 h-6" />, label: 'Industry Map', path: '/industry', type: 'industry' },
-    { icon: <Shield className="w-6 h-6" />, label: 'Red Flags', path: '/red-flags', type: 'red_flags' },
-    { icon: <Shield className="w-6 h-6" />, label: 'Consistency Engine', path: '/consistency', type: 'consistency', highlight: true },
-    { icon: <Zap className="w-6 h-6" />, label: 'Portfolio', path: '/portfolio', type: 'portfolio' },
-    { icon: <Brain className="w-6 h-6" />, label: 'Simulator', path: '/simulator', type: 'simulator' },
+    { 
+      icon: <FileText className="w-6 h-6" />, 
+      label: 'Financial Statement', 
+      description: 'Deep dive into P&L, balance sheet, and cash flows',
+      path: '/analysis', 
+      type: 'statement' 
+    },
+    { 
+      icon: <TrendingUp className="w-6 h-6" />, 
+      label: 'Earnings Analysis', 
+      description: 'Extract insights from earnings calls and transcripts',
+      path: '/earnings', 
+      type: 'earnings' 
+    },
+    { 
+      icon: <TrendingUp className="w-6 h-6" />, 
+      label: 'Earnings Quality Score', 
+      description: 'Detect real vs engineered earnings • Trap detection',
+      path: '/earnings-quality', 
+      type: 'earnings_quality', 
+      highlight: true 
+    },
+    { 
+      icon: <BarChart3 className="w-6 h-6" />, 
+      label: 'Industry Map', 
+      description: 'Analyze industry dynamics and competitive landscape',
+      path: '/industry', 
+      type: 'industry' 
+    },
+    { 
+      icon: <Shield className="w-6 h-6" />, 
+      label: 'Red Flags', 
+      description: 'Detect accounting anomalies and manipulation risks',
+      path: '/red-flags', 
+      type: 'red_flags' 
+    },
+    { 
+      icon: <Shield className="w-6 h-6" />, 
+      label: 'Consistency Engine', 
+      description: 'Cross-statement reconciliation • Forensic analysis',
+      path: '/consistency', 
+      type: 'consistency', 
+      highlight: true 
+    },
+    { 
+      icon: <Zap className="w-6 h-6" />, 
+      label: 'Portfolio', 
+      description: 'Analyze portfolio diversification and risk metrics',
+      path: '/portfolio', 
+      type: 'portfolio' 
+    },
+    { 
+      icon: <Brain className="w-6 h-6" />, 
+      label: 'Simulator', 
+      description: 'Model business scenarios with interactive parameters',
+      path: '/simulator', 
+      type: 'simulator' 
+    },
   ];
 
   return (
