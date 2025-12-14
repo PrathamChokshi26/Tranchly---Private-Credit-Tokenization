@@ -146,6 +146,7 @@ Key Highlights:
     { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Analysis', path: '/earnings', type: 'earnings' },
     { icon: <BarChart3 className="w-6 h-6" />, label: 'Industry Map', path: '/industry', type: 'industry' },
     { icon: <Shield className="w-6 h-6" />, label: 'Red Flags', path: '/red-flags', type: 'red_flags' },
+    { icon: <Shield className="w-6 h-6" />, label: 'Consistency Engine', path: '/consistency', type: 'consistency', highlight: true },
     { icon: <Zap className="w-6 h-6" />, label: 'Portfolio', path: '/portfolio', type: 'portfolio' },
     { icon: <Brain className="w-6 h-6" />, label: 'Simulator', path: '/simulator', type: 'simulator' },
   ];
