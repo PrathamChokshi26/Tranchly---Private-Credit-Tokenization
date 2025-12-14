@@ -55,6 +55,43 @@ const ResearchWorkspace = () => {
     }
   };
 
+  const openDocument = (doc) => {
+    // Store document content and navigate to dashboard for analysis
+    sessionStorage.setItem('analysisContent', doc.content || 'Document content');
+    sessionStorage.setItem('documentId', doc.id);
+    toast.success(`Opening ${doc.filename}`);
+    navigate('/dashboard');
+  };
+
+  const openAnalysis = (analysis) => {
+    // Store analysis data and navigate to appropriate page
+    sessionStorage.setItem('analysisContent', analysis.content || '');
+    sessionStorage.setItem('documentId', analysis.document_id || '');
+    
+    const typeRoutes = {
+      'statement': '/analysis',
+      'earnings': '/earnings',
+      'industry': '/industry',
+      'red_flags': '/red-flags',
+      'kpi': '/kpi',
+      'valuation': '/analysis'
+    };
+    
+    const route = typeRoutes[analysis.analysis_type] || '/analysis';
+    toast.success('Opening analysis...');
+    navigate(route);
+  };
+
+  const viewCompany = (company) => {
+    toast.info(`Viewing ${company.name}`);
+    // Could navigate to a detailed company view page
+  };
+
+  const viewPortfolio = (portfolio) => {
+    toast.info(`Viewing ${portfolio.name}`);
+    // Could navigate to portfolio detail page
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a0a0b] via-[#121214] to-[#0a0a0b] text-white">
       <div className="border-b border-white/10 backdrop-blur-xl bg-black/20">
