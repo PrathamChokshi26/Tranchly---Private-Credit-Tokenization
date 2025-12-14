@@ -33,6 +33,10 @@ const Dashboard = () => {
   const [textInput, setTextInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [documentId, setDocumentId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState(''); // idle, uploading, processing, success, error
+  const [retryCount, setRetryCount] = useState(0);
+  const [cancelTokenSource, setCancelTokenSource] = useState(null);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
