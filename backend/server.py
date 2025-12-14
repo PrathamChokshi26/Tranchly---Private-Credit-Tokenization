@@ -162,6 +162,8 @@ async def upload_document(file: UploadFile = File(...)):
         filename = file.filename
         file_ext = filename.split('.')[-1].lower()
         
+        logger.info(f"Processing file: {filename}, size: {len(file_bytes)} bytes")
+        
         # Extract text based on file type
         if file_ext == 'pdf':
             content = extract_text_from_pdf(file_bytes)
@@ -178,6 +180,8 @@ async def upload_document(file: UploadFile = File(...)):
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
         
+        logger.info(f"Extracted {len(content)} characters from {filename}")
+        
         # Save to database
         doc = FinancialDocument(
             filename=filename,
@@ -188,15 +192,18 @@ async def upload_document(file: UploadFile = File(...)):
         doc_dict = doc.model_dump()
         doc_dict['upload_date'] = doc_dict['upload_date'].isoformat()
         
-        await db.documents.insert_one(doc_dict)
+        result = await db.documents.insert_one(doc_dict)
+        logger.info(f"Document saved to DB with ID: {doc.id}")
         
         return {
             "success": True,
             "document_id": doc.id,
             "filename": filename,
-            "content_length": len(content)
+            "content_length": len(content),
+            "content_preview": content[:500] if len(content) > 500 else content
         }
     except Exception as e:
+        logger.error(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/analyze/statement")
