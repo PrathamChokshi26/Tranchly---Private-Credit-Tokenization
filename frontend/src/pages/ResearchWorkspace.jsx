@@ -351,6 +351,15 @@ const ResearchWorkspace = () => {
                             </div>
                           </div>
                         )}
+                        <div className="mt-4 flex justify-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                          >
+                            View Full Analysis →
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </Card>
