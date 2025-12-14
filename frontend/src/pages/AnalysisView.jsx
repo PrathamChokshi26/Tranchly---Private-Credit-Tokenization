@@ -269,6 +269,41 @@ const AnalysisView = () => {
           </Card>
         )}
 
+        {/* Key Insights */}
+        {analysis.key_insights && Array.isArray(analysis.key_insights) && (
+          <Card className="glass-panel p-6 border-white/10 border-blue-500/20 bg-blue-500/5">
+            <h3 className="text-xl font-semibold mb-6" style={{fontFamily: 'Space Grotesk, sans-serif'}}>Key Insights</h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              {analysis.key_insights.map((insight, i) => (
+                <div key={i} className="bg-white/5 p-4 rounded-lg border border-white/10 hover:border-blue-500/30 transition-all">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold text-blue-400">{i + 1}</span>
+                    </div>
+                    <p className="text-sm text-gray-300 leading-relaxed">{insight}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Segment Analysis */}
+        {analysis.segment_analysis && (
+          <Card className="glass-panel p-6 border-white/10">
+            <h3 className="text-xl font-semibold mb-4" style={{fontFamily: 'Space Grotesk, sans-serif'}}>Business Segment Analysis</h3>
+            <p className="text-gray-300 leading-relaxed">{analysis.segment_analysis}</p>
+          </Card>
+        )}
+
+        {/* Management Discussion */}
+        {analysis.management_discussion && (
+          <Card className="glass-panel p-6 border-white/10">
+            <h3 className="text-xl font-semibold mb-4" style={{fontFamily: 'Space Grotesk, sans-serif'}}>Management Discussion & Analysis</h3>
+            <p className="text-gray-300 leading-relaxed">{analysis.management_discussion}</p>
+          </Card>
+        )}
+
         {/* Red Flags */}
         {analysis.red_flags && (
           <Card className="glass-panel p-6 border-white/10 border-red-500/20" data-testid="red-flags-section">
