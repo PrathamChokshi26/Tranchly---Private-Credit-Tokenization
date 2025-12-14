@@ -245,10 +245,16 @@ const ResearchWorkspace = () => {
                 <Card className="glass-panel p-12 border-white/10 col-span-full text-center">
                   <PieChart className="w-16 h-16 mx-auto mb-4 text-gray-600" />
                   <p className="text-gray-400">No portfolios created yet</p>
+                  <p className="text-sm text-gray-500 mt-2">Create portfolios using the Portfolio Analyzer</p>
                 </Card>
               ) : (
                 portfolios.map((portfolio, index) => (
-                  <Card key={portfolio.id || index} className="glass-panel p-6 border-white/10 hover-lift" data-testid={`portfolio-${index}`}>
+                  <Card 
+                    key={portfolio.id || index} 
+                    onClick={() => viewPortfolio(portfolio)}
+                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-purple-500/30" 
+                    data-testid={`portfolio-${index}`}
+                  >
                     <div className="flex items-start space-x-3 mb-4">
                       <PieChart className="w-5 h-5 text-purple-400 mt-1" />
                       <div className="flex-1 min-w-0">
@@ -258,8 +264,23 @@ const ResearchWorkspace = () => {
                         </p>
                       </div>
                     </div>
+                    {portfolio.holdings && portfolio.holdings.length > 0 && (
+                      <div className="bg-white/5 rounded-lg p-3 mb-3 space-y-1">
+                        {portfolio.holdings.slice(0, 3).map((holding, i) => (
+                          <div key={i} className="flex justify-between text-xs">
+                            <span className="text-gray-400">{holding.ticker}</span>
+                            <span className="text-gray-300">{holding.shares} shares</span>
+                          </div>
+                        ))}
+                        {portfolio.holdings.length > 3 && (
+                          <div className="text-xs text-gray-500 text-center mt-2">
+                            +{portfolio.holdings.length - 3} more
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="text-xs text-gray-500">
-                      {formatDate(portfolio.created_at)}
+                      Created: {formatDate(portfolio.created_at)}
                     </div>
                   </Card>
                 ))
