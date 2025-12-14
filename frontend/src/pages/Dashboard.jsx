@@ -4,10 +4,27 @@ import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Card } from '../components/ui/card';
-import { Upload, FileText, TrendingUp, BarChart3, Shield, Zap, Brain, Home } from 'lucide-react';
+import { Upload, FileText, TrendingUp, BarChart3, Shield, Zap, Brain, Home, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Add axios request interceptor for debugging
+axios.interceptors.request.use(request => {
+  console.log('Starting Request:', request.url);
+  return request;
+});
+
+axios.interceptors.response.use(
+  response => {
+    console.log('Response:', response.status);
+    return response;
+  },
+  error => {
+    console.error('Response Error:', error.message);
+    return Promise.reject(error);
+  }
+);
 
 const Dashboard = () => {
   const navigate = useNavigate();
