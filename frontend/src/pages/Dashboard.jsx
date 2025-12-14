@@ -57,8 +57,9 @@ const Dashboard = () => {
 
     console.log(`[UPLOAD START] File: ${file.name}, Size: ${(file.size / 1024).toFixed(2)}KB`);
     
-    // Show loading toast
-    toast.loading('Uploading document...', { id: 'upload' });
+    // Show loading toast with estimated time
+    const estimatedSeconds = Math.ceil(file.size / (500 * 1024)); // ~500KB per second
+    toast.loading(`Uploading ${file.name}... (~${estimatedSeconds}s)`, { id: 'upload' });
     setLoading(true);
     
     const formData = new FormData();
