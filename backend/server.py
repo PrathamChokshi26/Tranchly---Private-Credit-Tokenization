@@ -865,6 +865,380 @@ CRITICAL RULES:
     
     return {"success": True, "analysis_id": analysis.id, "result": result}
 
+@api_router.post("/analyze/income-statement")
+async def analyze_income_statement(request: AnalysisRequest):
+    """Specialized Income Statement Analysis"""
+    
+    prompt = f"""You are analyzing an Income Statement (Profit & Loss Statement).
+
+INCOME STATEMENT DATA:
+{request.content[:15000]}
+
+Perform comprehensive P&L analysis and respond in VALID JSON:
+
+{{
+  "document_type": "Income Statement",
+  "period_covered": "Quarter/Year identified",
+  
+  "summary": "Executive summary of income statement performance (4-5 sentences)",
+  
+  "revenue_analysis": {{
+    "total_revenue": "Dollar amount",
+    "revenue_growth_yoy": "X% growth",
+    "revenue_growth_qoq": "X% growth if quarterly",
+    "revenue_breakdown": [
+      {{"segment": "Product Revenue", "amount": "$X", "percentage": "Y%"}},
+      {{"segment": "Service Revenue", "amount": "$X", "percentage": "Y%"}}
+    ],
+    "revenue_quality": "Assessment of revenue sustainability and quality"
+  }},
+  
+  "profitability_metrics": {{
+    "gross_profit": "$X",
+    "gross_margin": "X%",
+    "gross_margin_trend": "Expanding/Stable/Contracting",
+    "operating_income": "$X",
+    "operating_margin": "X%",
+    "operating_margin_trend": "Expanding/Stable/Contracting",
+    "net_income": "$X",
+    "net_margin": "X%",
+    "net_margin_trend": "Expanding/Stable/Contracting",
+    "ebitda": "$X (if calculable)",
+    "ebitda_margin": "X%"
+  }},
+  
+  "cost_structure": {{
+    "cost_of_revenue": "$X",
+    "cogs_percentage": "X% of revenue",
+    "operating_expenses": "$X",
+    "opex_percentage": "X% of revenue",
+    "rd_expense": "$X",
+    "sales_marketing": "$X",
+    "general_admin": "$X",
+    "cost_efficiency": "Assessment of cost management"
+  }},
+  
+  "earnings_per_share": {{
+    "basic_eps": "$X",
+    "diluted_eps": "$X",
+    "eps_growth": "X% vs prior period",
+    "shares_outstanding": "X million",
+    "share_count_trend": "Increasing/Decreasing/Stable"
+  }},
+  
+  "margin_waterfall": [
+    {{"item": "Revenue", "value": 100, "color": "#10b981"}},
+    {{"item": "Less: COGS", "value": -52, "color": "#ef4444"}},
+    {{"item": "Gross Profit", "value": 48, "color": "#3b82f6"}},
+    {{"item": "Less: OpEx", "value": -30, "color": "#ef4444"}},
+    {{"item": "Operating Income", "value": 18, "color": "#8b5cf6"}},
+    {{"item": "Less: Taxes/Int", "value": -5, "color": "#ef4444"}},
+    {{"item": "Net Income", "value": 13, "color": "#10b981"}}
+  ],
+  
+  "key_trends": [
+    "Most significant trend 1",
+    "Most significant trend 2",
+    "Most significant trend 3"
+  ],
+  
+  "red_flags": [
+    "Any concerning patterns or anomalies"
+  ],
+  
+  "strengths": [
+    "Positive aspects of performance"
+  ],
+  
+  "yoy_comparison": {{
+    "revenue_change": "+15%",
+    "gross_margin_change": "+2.3 pp",
+    "operating_margin_change": "+1.8 pp",
+    "net_income_change": "+22%"
+  }},
+  
+  "profitability_score": 85,
+  
+  "recommendation": "Investment perspective based on P&L performance"
+}}
+
+Extract actual numbers from the document. If quarterly, include QoQ comparisons. Focus on profitability drivers and margin trends."""
+    
+    result_text = await get_llm_analysis(prompt)
+    
+    try:
+        result = json.loads(result_text)
+    except:
+        result = {"analysis": result_text}
+    
+    analysis = Analysis(
+        document_id=request.document_id,
+        analysis_type="income_statement",
+        content=request.content[:5000],
+        result=result
+    )
+    
+    analysis_dict = analysis.model_dump()
+    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
+    await db.analyses.insert_one(analysis_dict)
+    
+    return {"success": True, "analysis_id": analysis.id, "result": result}
+
+@api_router.post("/analyze/balance-sheet")
+async def analyze_balance_sheet(request: AnalysisRequest):
+    """Specialized Balance Sheet Analysis"""
+    
+    prompt = f"""You are analyzing a Balance Sheet (Statement of Financial Position).
+
+BALANCE SHEET DATA:
+{request.content[:15000]}
+
+Perform comprehensive balance sheet analysis and respond in VALID JSON:
+
+{{
+  "document_type": "Balance Sheet",
+  "as_of_date": "Date of balance sheet",
+  
+  "summary": "Executive summary of financial position and health (4-5 sentences)",
+  
+  "assets": {{
+    "total_assets": "$X",
+    "current_assets": "$X",
+    "current_assets_breakdown": [
+      {{"item": "Cash & Equivalents", "amount": "$X"}},
+      {{"item": "Accounts Receivable", "amount": "$X"}},
+      {{"item": "Inventory", "amount": "$X"}},
+      {{"item": "Other Current Assets", "amount": "$X"}}
+    ],
+    "non_current_assets": "$X",
+    "non_current_breakdown": [
+      {{"item": "Property, Plant & Equipment", "amount": "$X"}},
+      {{"item": "Intangible Assets", "amount": "$X"}},
+      {{"item": "Goodwill", "amount": "$X"}},
+      {{"item": "Other Long-term Assets", "amount": "$X"}}
+    ],
+    "asset_quality": "Assessment of asset composition and quality"
+  }},
+  
+  "liabilities": {{
+    "total_liabilities": "$X",
+    "current_liabilities": "$X",
+    "current_liabilities_breakdown": [
+      {{"item": "Accounts Payable", "amount": "$X"}},
+      {{"item": "Short-term Debt", "amount": "$X"}},
+      {{"item": "Accrued Expenses", "amount": "$X"}},
+      {{"item": "Other Current Liabilities", "amount": "$X"}}
+    ],
+    "non_current_liabilities": "$X",
+    "long_term_debt": "$X",
+    "debt_structure": "Assessment of debt maturity and terms"
+  }},
+  
+  "equity": {{
+    "total_equity": "$X",
+    "common_stock": "$X",
+    "retained_earnings": "$X",
+    "equity_structure": "Assessment of equity composition"
+  }},
+  
+  "liquidity_ratios": {{
+    "current_ratio": "X.XX",
+    "quick_ratio": "X.XX",
+    "cash_ratio": "X.XX",
+    "working_capital": "$X",
+    "liquidity_assessment": "Strong/Adequate/Weak"
+  }},
+  
+  "leverage_ratios": {{
+    "debt_to_equity": "X.XX",
+    "debt_to_assets": "X.XX",
+    "equity_ratio": "X.XX",
+    "leverage_assessment": "Conservative/Moderate/Aggressive"
+  }},
+  
+  "efficiency_metrics": {{
+    "asset_turnover": "X.XX (if revenue available)",
+    "receivables_turnover": "X.XX (if revenue available)",
+    "inventory_turnover": "X.XX (if COGS available)"
+  }},
+  
+  "balance_sheet_composition": [
+    {{"category": "Current Assets", "value": 45, "color": "#10b981"}},
+    {{"category": "Non-Current Assets", "value": 55, "color": "#3b82f6"}},
+    {{"category": "Current Liabilities", "value": 25, "color": "#ef4444"}},
+    {{"category": "Long-term Liabilities", "value": 30, "color": "#f59e0b"}},
+    {{"category": "Equity", "value": 45, "color": "#8b5cf6"}}
+  ],
+  
+  "financial_health_indicators": [
+    {{"metric": "Liquidity", "score": 85, "status": "Strong"}},
+    {{"metric": "Solvency", "score": 78, "status": "Good"}},
+    {{"metric": "Asset Quality", "score": 82, "status": "Strong"}},
+    {{"metric": "Capital Structure", "score": 75, "status": "Good"}}
+  ],
+  
+  "key_observations": [
+    "Most important observation 1",
+    "Most important observation 2",
+    "Most important observation 3"
+  ],
+  
+  "red_flags": [
+    "Any concerning balance sheet items or ratios"
+  ],
+  
+  "strengths": [
+    "Strong aspects of financial position"
+  ],
+  
+  "financial_health_score": 82,
+  
+  "recommendation": "Assessment of balance sheet strength and risks"
+}}
+
+Extract actual numbers and calculate all ratios. Focus on liquidity, leverage, and asset quality."""
+    
+    result_text = await get_llm_analysis(prompt)
+    
+    try:
+        result = json.loads(result_text)
+    except:
+        result = {"analysis": result_text}
+    
+    analysis = Analysis(
+        document_id=request.document_id,
+        analysis_type="balance_sheet",
+        content=request.content[:5000],
+        result=result
+    )
+    
+    analysis_dict = analysis.model_dump()
+    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
+    await db.analyses.insert_one(analysis_dict)
+    
+    return {"success": True, "analysis_id": analysis.id, "result": result}
+
+@api_router.post("/analyze/cash-flow")
+async def analyze_cash_flow(request: AnalysisRequest):
+    """Specialized Cash Flow Statement Analysis"""
+    
+    prompt = f"""You are analyzing a Cash Flow Statement.
+
+CASH FLOW STATEMENT DATA:
+{request.content[:15000]}
+
+Perform comprehensive cash flow analysis and respond in VALID JSON:
+
+{{
+  "document_type": "Cash Flow Statement",
+  "period_covered": "Quarter/Year identified",
+  
+  "summary": "Executive summary of cash generation and usage (4-5 sentences)",
+  
+  "operating_activities": {{
+    "net_cash_from_operations": "$X",
+    "net_income_reconciliation": "$X starting point",
+    "major_adjustments": [
+      {{"item": "Depreciation & Amortization", "amount": "$X"}},
+      {{"item": "Stock-based Compensation", "amount": "$X"}},
+      {{"item": "Changes in Working Capital", "amount": "$X"}}
+    ],
+    "operating_cash_quality": "Assessment of operating cash flow quality",
+    "cash_conversion_rate": "X% (OCF / Net Income)"
+  }},
+  
+  "investing_activities": {{
+    "net_cash_from_investing": "$X",
+    "capital_expenditures": "$X",
+    "acquisitions": "$X",
+    "asset_sales": "$X",
+    "capex_intensity": "X% of revenue if available",
+    "investment_assessment": "Growth/Maintenance/Divestiture focused"
+  }},
+  
+  "financing_activities": {{
+    "net_cash_from_financing": "$X",
+    "debt_issuance_repayment": "$X",
+    "equity_issuance_buyback": "$X",
+    "dividends_paid": "$X",
+    "financing_strategy": "Assessment of capital allocation"
+  }},
+  
+  "cash_position": {{
+    "beginning_cash": "$X",
+    "net_change_in_cash": "$X",
+    "ending_cash": "$X",
+    "cash_adequacy": "Strong/Adequate/Weak"
+  }},
+  
+  "free_cash_flow": {{
+    "fcf": "$X (OCF - CapEx)",
+    "fcf_margin": "X% if revenue available",
+    "fcf_growth": "X% vs prior period",
+    "fcf_quality": "Assessment of free cash flow sustainability"
+  }},
+  
+  "cash_flow_breakdown": [
+    {{"activity": "Operating", "amount": 300, "color": "#10b981"}},
+    {{"activity": "Investing", "amount": -120, "color": "#ef4444"}},
+    {{"activity": "Financing", "amount": -80, "color": "#f59e0b"}},
+    {{"activity": "Net Change", "amount": 100, "color": "#3b82f6"}}
+  ],
+  
+  "working_capital_changes": [
+    {{"item": "Accounts Receivable", "impact": "$X", "direction": "Use/Source"}},
+    {{"item": "Inventory", "impact": "$X", "direction": "Use/Source"}},
+    {{"item": "Accounts Payable", "impact": "$X", "direction": "Use/Source"}}
+  ],
+  
+  "cash_generation_metrics": {{
+    "operating_cash_margin": "X%",
+    "capex_to_ocf_ratio": "X%",
+    "fcf_conversion": "X%",
+    "cash_return_on_assets": "X%"
+  }},
+  
+  "key_insights": [
+    "Most important cash flow insight 1",
+    "Most important cash flow insight 2",
+    "Most important cash flow insight 3"
+  ],
+  
+  "concerns": [
+    "Any concerning cash flow patterns"
+  ],
+  
+  "strengths": [
+    "Strong aspects of cash generation"
+  ],
+  
+  "cash_generation_score": 88,
+  
+  "sustainability_assessment": "Assessment of cash flow sustainability and quality"
+}}
+
+Calculate free cash flow and all metrics. Focus on cash generation quality and sustainability."""
+    
+    result_text = await get_llm_analysis(prompt)
+    
+    try:
+        result = json.loads(result_text)
+    except:
+        result = {"analysis": result_text}
+    
+    analysis = Analysis(
+        document_id=request.document_id,
+        analysis_type="cash_flow",
+        content=request.content[:5000],
+        result=result
+    )
+    
+    analysis_dict = analysis.model_dump()
+    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
+    await db.analyses.insert_one(analysis_dict)
+    
+    return {"success": True, "analysis_id": analysis.id, "result": result}
+
 @api_router.post("/simulate")
 async def simulate_business(request: SimulationRequest):
     """Simulate business model with different parameters"""
