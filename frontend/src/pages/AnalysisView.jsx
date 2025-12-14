@@ -214,14 +214,30 @@ const AnalysisView = () => {
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={analysis.trends.revenue}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="period" stroke="#9ca3af" />
-                <YAxis stroke="#9ca3af" />
+                <XAxis dataKey="period" stroke="#9ca3af" style={{ fontSize: '12px' }} />
+                <YAxis stroke="#9ca3af" style={{ fontSize: '12px' }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                  labelStyle={{ color: '#fff' }}
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(10,10,11,0.95)', 
+                    border: '1px solid rgba(59,130,246,0.3)', 
+                    borderRadius: '12px',
+                    padding: '12px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                  }}
+                  labelStyle={{ color: '#e5e5e7', fontWeight: '600', marginBottom: '4px' }}
+                  itemStyle={{ color: '#3b82f6', fontSize: '14px' }}
+                  cursor={{ stroke: 'rgba(59,130,246,0.2)', strokeWidth: 2 }}
                 />
-                <Legend />
-                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 5 }} name="Revenue ($M)" />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#3b82f6" 
+                  strokeWidth={3} 
+                  dot={{ fill: '#3b82f6', r: 6, strokeWidth: 2, stroke: '#1e3a8a' }} 
+                  activeDot={{ r: 8, strokeWidth: 0 }}
+                  name="Revenue ($M)" 
+                />
               </LineChart>
             </ResponsiveContainer>
           </Card>
