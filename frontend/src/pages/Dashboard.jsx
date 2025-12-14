@@ -146,6 +146,28 @@ Key Highlights:
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-12">
+        {/* Quick Action Banner */}
+        <Card className="glass-panel p-4 border-blue-500/30 bg-blue-500/5 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+                <FileText className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Want to try without uploading?</p>
+                <p className="text-xs text-gray-400">Use sample financial data to test the platform</p>
+              </div>
+            </div>
+            <Button
+              onClick={useSampleData}
+              className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-6"
+              data-testid="use-sample-data-btn"
+            >
+              Use Sample Data
+            </Button>
+          </div>
+        </Card>
+
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Panel */}
           <div className="lg:col-span-2 space-y-6">
