@@ -33,6 +33,7 @@ function App() {
           <Route path="/workspace" element={<ResearchWorkspace />} />
           <Route path="/consistency" element={<ConsistencyEngine />} />
           <Route path="/earnings-quality" element={<EarningsQuality />} />
+          <Route path="/income-statement" element={<IncomeStatementAnalysis />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
