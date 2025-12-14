@@ -707,6 +707,160 @@ CRITICAL RULES:
     
     return {"success": True, "analysis_id": analysis.id, "result": result}
 
+@api_router.post("/analyze/earnings-quality")
+async def analyze_earnings_quality(request: AnalysisRequest):
+    """Earnings Quality Score - Distinguishes real vs engineered earnings"""
+    
+    prompt = f"""You are an expert at evaluating corporate earnings quality.
+
+FINANCIAL DATA:
+{request.content[:15000]}
+
+ANALYSIS TASKS:
+1. Compare earnings growth to cash flow growth
+2. Analyze margin expansion sources and sustainability
+3. Identify aggressive accounting indicators
+4. Detect revenue recognition timing issues
+5. Assess quality of reported EPS
+
+SCORING CRITERIA:
+- High quality (8-10): Strong cash conversion, sustainable margins, conservative accounting
+- Medium quality (5-7): Moderate concerns, some engineering, mixed signals
+- Low quality (1-4): Significant red flags, aggressive accounting, earnings trap risk
+
+RESPOND IN VALID JSON FORMAT:
+
+{{
+  "earnings_quality_score": 7,
+  
+  "summary": "Executive summary of earnings quality assessment (3-4 sentences)",
+  
+  "score_justification": "Detailed explanation of why this specific score was assigned",
+  
+  "eps_vs_cash_analysis": {{
+    "eps_growth": "X% growth YoY",
+    "operating_cash_flow_growth": "Y% growth YoY",
+    "divergence": "Z percentage points",
+    "assessment": "Growing divergence signals quality concerns / Strong alignment indicates real earnings",
+    "concern_level": "Low/Medium/High"
+  }},
+  
+  "margin_analysis": {{
+    "gross_margin_trend": "Expanding/Stable/Contracting",
+    "operating_margin_trend": "Expanding/Stable/Contracting",
+    "margin_expansion_drivers": [
+      "Operational efficiency improvements",
+      "Pricing power",
+      "Cost reduction initiatives"
+    ],
+    "sustainability_assessment": "Margins appear sustainable / Margins may face pressure",
+    "red_flags": ["One-time benefits inflating margins", "Unsustainable cost cuts"]
+  }},
+  
+  "revenue_quality": {{
+    "revenue_recognition_assessment": "Conservative / Aggressive / Normal",
+    "accounts_receivable_quality": {{
+      "dso_trend": "Improving/Stable/Deteriorating",
+      "dso_value": "X days",
+      "concern": "AR growing faster than revenue suggests pull-forward"
+    }},
+    "revenue_concentration_risk": "Low/Medium/High",
+    "one_time_items": ["List any non-recurring revenue items"]
+  }},
+  
+  "aggressive_accounting_indicators": [
+    {{
+      "indicator": "Revenue Recognition Timing",
+      "evidence": "Specific pattern observed",
+      "severity": "Low/Medium/High",
+      "impact_on_score": -1
+    }},
+    {{
+      "indicator": "Capitalized Expenses",
+      "evidence": "Rising capex-to-maintenance ratio",
+      "severity": "Medium",
+      "impact_on_score": -0.5
+    }},
+    {{
+      "indicator": "Inventory Buildup",
+      "evidence": "Inventory growing faster than COGS",
+      "severity": "Medium",
+      "impact_on_score": -0.5
+    }}
+  ],
+  
+  "key_red_flags": [
+    "EPS growing 20% while cash flow flat - major quality concern",
+    "Margins boosted by one-time restructuring benefits",
+    "DSO increased from 45 to 58 days - aggressive collections"
+  ],
+  
+  "positive_signals": [
+    "Cash conversion consistently above 100%",
+    "Conservative revenue recognition policies",
+    "Sustainable margin expansion from pricing power"
+  ],
+  
+  "earnings_trap_risk": {{
+    "risk_level": "Low/Medium/High",
+    "probability": "Percentage likelihood of earnings disappointment",
+    "key_vulnerabilities": ["What could cause earnings to disappoint"],
+    "warning_signs": ["Early indicators to watch"]
+  }},
+  
+  "quality_breakdown": {{
+    "cash_conversion_quality": 8,
+    "margin_quality": 7,
+    "revenue_quality": 6,
+    "balance_sheet_quality": 8,
+    "accounting_conservatism": 7
+  }},
+  
+  "comparison_chart_data": [
+    {{"metric": "EPS Growth", "value": 15, "benchmark": 10}},
+    {{"metric": "CFO Growth", "value": 12, "benchmark": 10}},
+    {{"metric": "Gross Margin", "value": 48, "benchmark": 45}},
+    {{"metric": "Op Margin", "value": 18, "benchmark": 15}},
+    {{"metric": "Cash Conversion", "value": 105, "benchmark": 100}}
+  ]},
+  
+  "verdict": "High Quality / Medium Quality / Low Quality - Detailed conclusion",
+  
+  "investor_action": "Buy/Hold/Avoid with specific reasoning",
+  
+  "confidence_level": 85
+}}
+
+CRITICAL RULES:
+- Score from 1-10 only (integers)
+- Quantify all growth rates and trends
+- Be specific about red flags with evidence
+- Distinguish temporary vs structural issues
+- Consider industry context where applicable"""
+    
+    result_text = await get_llm_analysis(prompt)
+    
+    try:
+        result = json.loads(result_text)
+    except:
+        result = {"analysis": result_text}
+    
+    # Save analysis
+    analysis = Analysis(
+        document_id=request.document_id,
+        analysis_type="earnings_quality",
+        content=request.content[:5000],
+        result=result
+    )
+    
+    analysis_dict = analysis.model_dump()
+    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
+    await db.analyses.insert_one(analysis_dict)
+    
+    logger.info(f"Earnings quality analysis saved with ID: {analysis.id}")
+    
+    return {"success": True, "analysis_id": analysis.id, "result": result}
+
 @api_router.post("/simulate")
 async def simulate_business(request: SimulationRequest):
     """Simulate business model with different parameters"""
