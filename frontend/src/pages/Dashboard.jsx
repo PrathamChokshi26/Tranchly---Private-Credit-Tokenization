@@ -21,21 +21,36 @@ const Dashboard = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Show loading toast
+    toast.loading('Uploading document...', { id: 'upload' });
     setLoading(true);
+    
     const formData = new FormData();
     formData.append('file', file);
 
     try {
       const response = await axios.post(`${API}/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000 // 60 second timeout
       });
+      
       setUploadedFile(file.name);
       setDocumentId(response.data.document_id);
-      toast.success('Document uploaded successfully!');
+      
+      // Store content for later use
+      if (response.data.content_length) {
+        console.log('Document uploaded with', response.data.content_length, 'characters');
+      }
+      
+      toast.success('Document uploaded successfully! ✓', { id: 'upload' });
     } catch (error) {
-      toast.error('Upload failed: ' + (error.response?.data?.detail || error.message));
+      console.error('Upload error:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Upload failed';
+      toast.error('Upload failed: ' + errorMsg, { id: 'upload' });
     } finally {
       setLoading(false);
+      // Reset file input
+      e.target.value = '';
     }
   };
 
