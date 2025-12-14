@@ -133,7 +133,11 @@ const Dashboard = () => {
 
                 <TabsContent value="upload" className="mt-6" data-testid="upload-content">
                   <div className="space-y-4">
-                    <div className="border-2 border-dashed border-white/20 rounded-2xl p-12 text-center hover:border-white/30 transition-colors cursor-pointer">
+                    <div className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all ${
+                      loading 
+                        ? 'border-blue-500/50 bg-blue-500/5' 
+                        : 'border-white/20 hover:border-white/30 cursor-pointer'
+                    }`}>
                       <input
                         data-testid="file-input"
                         type="file"
@@ -141,20 +145,36 @@ const Dashboard = () => {
                         accept=".pdf,.xlsx,.xls,.docx,.doc,.txt"
                         className="hidden"
                         id="file-upload"
+                        disabled={loading}
                       />
-                      <label htmlFor="file-upload" className="cursor-pointer">
-                        <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                        <p className="text-lg font-medium mb-2">Drop your file here or click to browse</p>
-                        <p className="text-sm text-gray-400">Supports PDF, Excel, Word, and Text files</p>
+                      <label htmlFor="file-upload" className={loading ? 'cursor-wait' : 'cursor-pointer'}>
+                        {loading ? (
+                          <>
+                            <div className="w-12 h-12 mx-auto mb-4 relative">
+                              <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                            </div>
+                            <p className="text-lg font-medium mb-2 text-blue-400">Uploading document...</p>
+                            <p className="text-sm text-gray-400">Please wait while we process your file</p>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                            <p className="text-lg font-medium mb-2">Drop your file here or click to browse</p>
+                            <p className="text-sm text-gray-400">Supports PDF, Excel, Word, and Text files</p>
+                          </>
+                        )}
                       </label>
                     </div>
-                    {uploadedFile && (
-                      <div data-testid="uploaded-file-display" className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+                    {uploadedFile && !loading && (
+                      <div data-testid="uploaded-file-display" className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between animate-in fade-in duration-500">
                         <div className="flex items-center space-x-3">
                           <FileText className="w-5 h-5 text-blue-400" />
                           <span className="text-sm">{uploadedFile}</span>
                         </div>
-                        <div className="w-2 h-2 bg-green-400 rounded-full" />
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-green-400">Ready</span>
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        </div>
                       </div>
                     )}
                   </div>
