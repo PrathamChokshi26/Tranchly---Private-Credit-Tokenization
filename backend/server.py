@@ -116,12 +116,16 @@ async def get_llm_analysis(prompt: str, context: str = "") -> str:
         raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF"""
+    """Extract text from PDF - Optimized"""
     try:
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
+        # Limit to first 100 pages for speed
+        max_pages = min(len(pdf_reader.pages), 100)
+        for i in range(max_pages):
+            page_text = pdf_reader.pages[i].extract_text()
+            if page_text:
+                text += page_text + "\n"
         return text
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF parsing error: {str(e)}")
