@@ -55,12 +55,25 @@ const ResearchWorkspace = () => {
     }
   };
 
-  const openDocument = (doc) => {
-    // Store document content and navigate to dashboard for analysis
-    sessionStorage.setItem('analysisContent', doc.content || 'Document content');
-    sessionStorage.setItem('documentId', doc.id);
-    toast.success(`Opening ${doc.filename}`);
-    navigate('/dashboard');
+  const openDocument = async (doc) => {
+    try {
+      // Fetch full document content if not already loaded
+      if (!doc.content) {
+        toast.loading('Loading document...', { id: 'load-doc' });
+        const response = await axios.get(`${API}/documents/${doc.id}`);
+        doc = response.data;
+        toast.success('Document loaded!', { id: 'load-doc' });
+      }
+      
+      // Store document content and navigate to dashboard for analysis
+      sessionStorage.setItem('analysisContent', doc.content || 'Document content');
+      sessionStorage.setItem('documentId', doc.id);
+      sessionStorage.setItem('documentFilename', doc.filename);
+      toast.success(`Opening ${doc.filename}`);
+      navigate('/dashboard');
+    } catch (error) {
+      toast.error('Failed to load document: ' + (error.response?.data?.detail || error.message));
+    }
   };
 
   const openAnalysis = (analysis) => {
