@@ -16,10 +16,18 @@ const AnalysisView = () => {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [useSampleData, setUseSampleData] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
     performAnalysis();
   }, []);
+
+  const saveAnalysis = () => {
+    // Analysis is already auto-saved to backend during API call
+    // Just update UI state
+    setIsSaved(true);
+    toast.success('Analysis saved to workspace! Access it from "My Workspace"');
+  };
 
   const getSampleData = () => {
     return {
