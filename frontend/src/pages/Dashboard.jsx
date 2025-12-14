@@ -38,14 +38,14 @@ const Dashboard = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [cancelTokenSource, setCancelTokenSource] = useState(null);
 
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = async (e, retryAttempt = 0) => {
     const file = e.target.files[0];
     if (!file) return;
 
     // Validate file size (50MB max)
     const maxSize = 50 * 1024 * 1024;
     if (file.size > maxSize) {
-      toast.error('File too large. Maximum size is 50MB');
+      toast.error('File too large. Maximum size is 50MB. Try compressing or splitting the file.');
       e.target.value = '';
       return;
     }
@@ -54,29 +54,54 @@ const Dashboard = () => {
     const validTypes = ['.pdf', '.xlsx', '.xls', '.docx', '.doc', '.txt', '.csv'];
     const fileExt = '.' + file.name.split('.').pop().toLowerCase();
     if (!validTypes.includes(fileExt)) {
-      toast.error('Unsupported file type. Please upload PDF, Excel, Word, Text, or CSV files.');
+      toast.error('Unsupported file type. Supported: PDF, Excel, Word, Text, CSV');
       e.target.value = '';
       return;
     }
 
-    console.log(`[UPLOAD START] File: ${file.name}, Size: ${(file.size / 1024).toFixed(2)}KB`);
+    console.log(`[UPLOAD START] File: ${file.name}, Size: ${(file.size / 1024).toFixed(2)}KB, Attempt: ${retryAttempt + 1}`);
     
-    // Show loading toast with estimated time
-    const estimatedSeconds = Math.ceil(file.size / (500 * 1024)); // ~500KB per second
-    toast.loading(`Uploading ${file.name}... (~${estimatedSeconds}s)`, { id: 'upload' });
+    // Calculate dynamic timeout based on file size
+    const baseTimeout = 30000; // 30 seconds
+    const sizeTimeout = Math.ceil(file.size / (200 * 1024)) * 1000; // 1 second per 200KB
+    const dynamicTimeout = Math.min(baseTimeout + sizeTimeout, 120000); // Max 2 minutes
+    
+    console.log(`[UPLOAD CONFIG] Timeout: ${dynamicTimeout}ms (${(dynamicTimeout/1000).toFixed(0)}s)`);
+    
     setLoading(true);
+    setUploadStatus('uploading');
+    setUploadProgress(0);
+    
+    // Create cancel token
+    const CancelToken = axios.CancelToken;
+    const source = CancelToken.source();
+    setCancelTokenSource(source);
     
     const formData = new FormData();
     formData.append('file', file);
     const startTime = Date.now();
 
+    // Show uploading toast
+    toast.loading(`Uploading ${file.name}... 0%`, { id: 'upload' });
+
     try {
       const response = await axios.post(`${API}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30000, // 30 second timeout
+        timeout: dynamicTimeout,
+        cancelToken: source.token,
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percentCompleted);
+            
+            // Update toast with progress
+            if (percentCompleted < 100) {
+              toast.loading(`Uploading ${file.name}... ${percentCompleted}%`, { id: 'upload' });
+            } else {
+              setUploadStatus('processing');
+              toast.loading(`Processing ${file.name}... Please wait`, { id: 'upload' });
+            }
+            
             console.log(`Upload progress: ${percentCompleted}%`);
           }
         }
@@ -88,26 +113,100 @@ const Dashboard = () => {
       
       setUploadedFile(file.name);
       setDocumentId(response.data.document_id);
+      setUploadStatus('success');
+      setUploadProgress(100);
+      setRetryCount(0);
       
-      toast.success(`✓ ${file.name} uploaded successfully! (${elapsed}s)`, { id: 'upload' });
+      toast.success(`✓ ${file.name} uploaded successfully! (${elapsed}s)`, { 
+        id: 'upload',
+        duration: 4000 
+      });
+      
+      // Reset file input
+      e.target.value = '';
+      
     } catch (error) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
       console.error(`[UPLOAD ERROR] Failed after ${elapsed}s:`, error);
       
+      // Check if request was cancelled
+      if (axios.isCancel(error)) {
+        console.log('[UPLOAD CANCELLED] User cancelled upload');
+        toast.error('Upload cancelled', { id: 'upload' });
+        setUploadStatus('idle');
+        return;
+      }
+      
+      setUploadStatus('error');
+      
       let errorMsg = 'Upload failed';
+      let canRetry = false;
+      
       if (error.code === 'ECONNABORTED') {
-        errorMsg = 'Upload timeout. File may be too large or server is busy.';
+        errorMsg = `Upload timeout after ${elapsed}s. File may be too large or server is busy.`;
+        canRetry = true;
+      } else if (error.response?.status === 502 || error.response?.status === 503) {
+        errorMsg = 'Server temporarily unavailable. Retrying...';
+        canRetry = true;
+      } else if (error.response?.status === 504) {
+        errorMsg = 'Gateway timeout. Server took too long to respond.';
+        canRetry = true;
+      } else if (error.message === 'Network Error') {
+        errorMsg = 'Network connection lost. Check your internet.';
+        canRetry = true;
       } else if (error.response?.data?.detail) {
         errorMsg = error.response.data.detail;
       } else if (error.message) {
         errorMsg = error.message;
       }
       
-      toast.error(errorMsg, { id: 'upload', duration: 5000 });
-    } finally {
-      setLoading(false);
+      // Retry logic with exponential backoff
+      const maxRetries = 3;
+      if (canRetry && retryAttempt < maxRetries) {
+        const retryDelay = Math.min(1000 * Math.pow(2, retryAttempt), 5000); // Max 5 seconds
+        console.log(`[UPLOAD RETRY] Attempt ${retryAttempt + 2} in ${retryDelay}ms`);
+        
+        toast.loading(`${errorMsg} Retrying in ${(retryDelay/1000).toFixed(0)}s...`, { 
+          id: 'upload',
+          duration: retryDelay 
+        });
+        
+        setRetryCount(retryAttempt + 1);
+        
+        setTimeout(() => {
+          handleFileUpload(e, retryAttempt + 1);
+        }, retryDelay);
+        
+        return;
+      }
+      
+      // Show final error
+      toast.error(
+        <div>
+          <div className="font-semibold">{errorMsg}</div>
+          {retryAttempt > 0 && <div className="text-xs mt-1">Failed after {retryAttempt + 1} attempts</div>}
+          {file.size > 10 * 1024 * 1024 && (
+            <div className="text-xs mt-1">💡 Tip: Try a smaller file or compress it</div>
+          )}
+        </div>,
+        { id: 'upload', duration: 7000 }
+      );
+      
       // Reset file input
       e.target.value = '';
+      
+    } finally {
+      setLoading(false);
+      setCancelTokenSource(null);
+    }
+  };
+
+  const cancelUpload = () => {
+    if (cancelTokenSource) {
+      cancelTokenSource.cancel('Upload cancelled by user');
+      setLoading(false);
+      setUploadStatus('idle');
+      setUploadProgress(0);
     }
   };
 
