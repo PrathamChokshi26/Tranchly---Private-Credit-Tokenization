@@ -561,6 +561,152 @@ Format as JSON with these sections."""
     
     return {"success": True, "analysis_id": analysis.id, "result": result}
 
+@api_router.post("/analyze/consistency")
+async def analyze_consistency(request: AnalysisRequest):
+    """Financial Consistency Engine - Cross-statement reconciliation and forensic analysis"""
+    
+    prompt = f"""You are a forensic financial analyst performing cross-statement reconciliation.
+
+FINANCIAL DATA:
+{request.content[:15000]}
+
+ANALYSIS TASKS:
+1. Reconcile net income with operating cash flow
+2. Identify sources of divergence (working capital, accruals, non-cash items)
+3. Assess whether divergence is normal or concerning
+4. Analyze balance sheet changes vs income statement
+5. Detect potential earnings manipulation indicators
+
+RESPOND IN VALID JSON FORMAT:
+
+{{
+  "summary": "Executive summary of financial statement consistency (3-4 sentences)",
+  
+  "reconciliation": {{
+    "net_income": "Value from income statement",
+    "operating_cash_flow": "Value from cash flow statement",
+    "difference": "Calculated difference",
+    "difference_percentage": "Percentage divergence"
+  }},
+  
+  "divergence_drivers": [
+    {{
+      "factor": "Working Capital Changes",
+      "impact": "Dollar amount impact",
+      "direction": "Increase/Decrease",
+      "explanation": "Why this creates divergence",
+      "normal": true/false
+    }},
+    {{
+      "factor": "Accounts Receivable Growth",
+      "impact": "Dollar amount",
+      "direction": "Increase",
+      "explanation": "AR growing faster than revenue",
+      "normal": false
+    }},
+    {{
+      "factor": "Depreciation & Amortization",
+      "impact": "Dollar amount",
+      "direction": "Add back",
+      "explanation": "Non-cash expense",
+      "normal": true
+    }}
+  ],
+  
+  "working_capital_analysis": {{
+    "accounts_receivable": {{
+      "change": "Dollar change",
+      "days_sales_outstanding": "DSO metric if available",
+      "concern_level": "Low/Medium/High"
+    }},
+    "inventory": {{
+      "change": "Dollar change", 
+      "days_inventory": "DIO metric if available",
+      "concern_level": "Low/Medium/High"
+    }},
+    "accounts_payable": {{
+      "change": "Dollar change",
+      "days_payable": "DPO metric if available",
+      "concern_level": "Low/Medium/High"
+    }}
+  }},
+  
+  "balance_sheet_pressure": {{
+    "debt_increase": "Change in total debt",
+    "equity_changes": "Changes in shareholders equity",
+    "asset_quality": "Assessment of asset composition",
+    "concerns": ["List of specific balance sheet concerns"]
+  }},
+  
+  "manipulation_indicators": [
+    {{
+      "indicator": "Revenue Recognition Timing",
+      "evidence": "Specific evidence found",
+      "severity": "Low/Medium/High"
+    }},
+    {{
+      "indicator": "Expense Capitalization",
+      "evidence": "Pattern observed",
+      "severity": "Low/Medium/High"
+    }}
+  ],
+  
+  "cash_quality_score": 85,
+  
+  "risk_assessment": {{
+    "overall_risk": "Low/Medium/High",
+    "primary_concerns": ["List top 3 concerns"],
+    "mitigating_factors": ["Positive factors"],
+    "recommendation": "Investor action recommendation"
+  }},
+  
+  "confidence_score": 82,
+  
+  "key_findings": [
+    "Most important finding 1",
+    "Most important finding 2", 
+    "Most important finding 3"
+  ],
+  
+  "reconciliation_chart_data": [
+    {{"item": "Net Income", "value": 320}},
+    {{"item": "Add: Depreciation", "value": 50}},
+    {{"item": "Less: WC Increase", "value": -80}},
+    {{"item": "Other Adjustments", "value": 10}},
+    {{"item": "Operating Cash Flow", "value": 300}}
+  ]
+}}
+
+CRITICAL RULES:
+- Use ONLY provided data, no assumptions
+- Quantify ALL differences in dollars
+- Clearly state if data is missing
+- Assign confidence based on data completeness
+- Be specific about what creates concern vs what's normal"""
+    
+    result_text = await get_llm_analysis(prompt)
+    
+    try:
+        result = json.loads(result_text)
+    except:
+        result = {"analysis": result_text}
+    
+    # Save analysis
+    analysis = Analysis(
+        document_id=request.document_id,
+        analysis_type="consistency",
+        content=request.content[:5000],
+        result=result
+    )
+    
+    analysis_dict = analysis.model_dump()
+    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
+    await db.analyses.insert_one(analysis_dict)
+    
+    logger.info(f"Consistency analysis saved with ID: {analysis.id}")
+    
+    return {"success": True, "analysis_id": analysis.id, "result": result}
+
 @api_router.post("/simulate")
 async def simulate_business(request: SimulationRequest):
     """Simulate business model with different parameters"""
