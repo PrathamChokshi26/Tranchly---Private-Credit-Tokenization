@@ -156,55 +156,86 @@ async def root():
 
 @api_router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """Upload and process financial document"""
+    """Upload and process financial document - FAST MODE"""
     try:
+        start_time = datetime.now(timezone.utc)
+        logger.info(f"[UPLOAD START] File: {file.filename}")
+        
+        # Read file with size limit (50MB max)
+        max_size = 50 * 1024 * 1024  # 50MB
         file_bytes = await file.read()
+        
+        if len(file_bytes) > max_size:
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 50MB")
+        
         filename = file.filename
         file_ext = filename.split('.')[-1].lower()
         
-        logger.info(f"Processing file: {filename}, size: {len(file_bytes)} bytes")
+        logger.info(f"[UPLOAD] Processing {filename}, size: {len(file_bytes)} bytes")
         
-        # Extract text based on file type
-        if file_ext == 'pdf':
-            content = extract_text_from_pdf(file_bytes)
-            file_type = 'pdf'
-        elif file_ext in ['xlsx', 'xls']:
-            content = extract_text_from_excel(file_bytes)
-            file_type = 'excel'
-        elif file_ext in ['docx', 'doc']:
-            content = extract_text_from_docx(file_bytes)
-            file_type = 'docx'
-        elif file_ext == 'txt':
-            content = file_bytes.decode('utf-8')
-            file_type = 'txt'
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
+        # Quick extraction with timeout protection
+        content = ""
+        try:
+            if file_ext == 'pdf':
+                content = extract_text_from_pdf(file_bytes)
+                file_type = 'pdf'
+            elif file_ext in ['xlsx', 'xls']:
+                content = extract_text_from_excel(file_bytes)
+                file_type = 'excel'
+            elif file_ext in ['docx', 'doc']:
+                content = extract_text_from_docx(file_bytes)
+                file_type = 'docx'
+            elif file_ext == 'txt':
+                content = file_bytes.decode('utf-8')
+                file_type = 'txt'
+            elif file_ext == 'csv':
+                content = file_bytes.decode('utf-8')
+                file_type = 'csv'
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}. Supported: PDF, Excel, Word, Text, CSV")
+        except Exception as parse_error:
+            logger.error(f"[UPLOAD ERROR] Parse failed: {str(parse_error)}")
+            raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(parse_error)}")
         
-        logger.info(f"Extracted {len(content)} characters from {filename}")
+        if not content or len(content) < 10:
+            raise HTTPException(status_code=400, detail="No content extracted from file. File may be empty or corrupted.")
         
-        # Save to database
+        logger.info(f"[UPLOAD] Extracted {len(content)} characters")
+        
+        # Quick DB save
         doc = FinancialDocument(
             filename=filename,
             file_type=file_type,
-            content=content
+            content=content[:100000]  # Limit to 100k chars for storage
         )
         
         doc_dict = doc.model_dump()
         doc_dict['upload_date'] = doc_dict['upload_date'].isoformat()
         
-        result = await db.documents.insert_one(doc_dict)
-        logger.info(f"Document saved to DB with ID: {doc.id}")
+        try:
+            await db.documents.insert_one(doc_dict)
+            logger.info(f"[UPLOAD SUCCESS] Saved to DB: {doc.id}")
+        except Exception as db_error:
+            logger.error(f"[UPLOAD ERROR] DB save failed: {str(db_error)}")
+            raise HTTPException(status_code=500, detail="Failed to save document to database")
+        
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        logger.info(f"[UPLOAD COMPLETE] {filename} in {elapsed:.2f}s")
         
         return {
             "success": True,
             "document_id": doc.id,
             "filename": filename,
             "content_length": len(content),
-            "content_preview": content[:500] if len(content) > 500 else content
+            "processing_time": f"{elapsed:.2f}s",
+            "message": "Document uploaded successfully"
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[UPLOAD ERROR] Unexpected: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @api_router.post("/analyze/statement")
 async def analyze_statement(request: AnalysisRequest):
