@@ -29,6 +29,7 @@ function App() {
           <Route path="/red-flags" element={<RedFlags />} />
           <Route path="/simulator" element={<Simulator />} />
           <Route path="/workspace" element={<ResearchWorkspace />} />
+          <Route path="/consistency" element={<ConsistencyEngine />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" richColors />
