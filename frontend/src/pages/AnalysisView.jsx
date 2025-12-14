@@ -359,6 +359,31 @@ const AnalysisView = () => {
               </Button>
               <h1 className="text-2xl font-bold" style={{fontFamily: 'Space Grotesk, sans-serif'}}>Financial Statement Analysis</h1>
             </div>
+            {analysis && !loading && (
+              <div className="flex items-center space-x-3">
+                {isSaved && (
+                  <span className="text-sm text-green-400 flex items-center space-x-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Saved</span>
+                  </span>
+                )}
+                <Button
+                  onClick={saveAnalysis}
+                  disabled={isSaved}
+                  className={`${isSaved ? 'bg-green-500/20 text-green-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-full px-6`}
+                  data-testid="save-analysis-btn"
+                >
+                  {isSaved ? 'Saved ✓' : 'Save Analysis'}
+                </Button>
+                <Button
+                  onClick={() => navigate('/workspace')}
+                  variant="outline"
+                  className="border-white/20 hover:bg-white/5 text-white rounded-full"
+                >
+                  View Workspace
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>
