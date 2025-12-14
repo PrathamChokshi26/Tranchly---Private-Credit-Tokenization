@@ -84,6 +84,28 @@ const Dashboard = () => {
     navigate(navigateTo);
   };
 
+  const useSampleData = () => {
+    const sampleText = `Financial Statement Q4 2023
+    
+Revenue: $2.5 Billion (+15% YoY)
+Cost of Revenue: $1.3 Billion
+Gross Profit: $1.2 Billion (48% margin)
+Operating Expenses: $750 Million
+Operating Income: $450 Million (18% margin)
+Net Income: $320 Million (13% margin)
+EPS: $3.45 (+19% YoY)
+
+Key Highlights:
+- Strong revenue growth driven by new product launches
+- Improved gross margins due to operational efficiency
+- Working capital optimization with DSO reduced by 5 days
+- Cash position of $800M, up from $650M last quarter`;
+
+    setTextInput(sampleText);
+    setActiveTab('paste');
+    toast.success('Sample financial statement loaded! You can now analyze it.');
+  };
+
   const tools = [
     { icon: <FileText className="w-6 h-6" />, label: 'Financial Statement', path: '/analysis', type: 'statement' },
     { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Analysis', path: '/earnings', type: 'earnings' },
