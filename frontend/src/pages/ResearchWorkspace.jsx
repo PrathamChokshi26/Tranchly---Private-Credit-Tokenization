@@ -197,22 +197,42 @@ const ResearchWorkspace = () => {
                 <Card className="glass-panel p-12 border-white/10 col-span-full text-center">
                   <Building2 className="w-16 h-16 mx-auto mb-4 text-gray-600" />
                   <p className="text-gray-400">No companies tracked yet</p>
+                  <p className="text-sm text-gray-500 mt-2">Start tracking companies from your analyses</p>
                 </Card>
               ) : (
                 companies.map((company, index) => (
-                  <Card key={company.id || index} className="glass-panel p-6 border-white/10 hover-lift" data-testid={`company-${index}`}>
+                  <Card 
+                    key={company.id || index} 
+                    onClick={() => viewCompany(company)}
+                    className="glass-panel p-6 border-white/10 hover-lift cursor-pointer transition-all hover:border-green-500/30" 
+                    data-testid={`company-${index}`}
+                  >
                     <div className="flex items-start space-x-3 mb-4">
                       <Building2 className="w-5 h-5 text-green-400 mt-1" />
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold mb-1">{company.name}</h3>
                         {company.ticker && (
-                          <p className="text-sm text-gray-400">{company.ticker}</p>
+                          <p className="text-sm text-gray-400 font-mono">{company.ticker}</p>
                         )}
                       </div>
                     </div>
-                    {company.sector && (
-                      <div className="text-xs text-gray-500">{company.sector}</div>
-                    )}
+                    <div className="space-y-2">
+                      {company.sector && (
+                        <div className="text-xs text-gray-500">
+                          <span className="text-gray-400">Sector:</span> {company.sector}
+                        </div>
+                      )}
+                      {company.industry && (
+                        <div className="text-xs text-gray-500">
+                          <span className="text-gray-400">Industry:</span> {company.industry}
+                        </div>
+                      )}
+                      {company.notes && (
+                        <div className="text-xs text-gray-500 line-clamp-2 mt-2 bg-white/5 p-2 rounded">
+                          {company.notes}
+                        </div>
+                      )}
+                    </div>
                   </Card>
                 ))
               )}
