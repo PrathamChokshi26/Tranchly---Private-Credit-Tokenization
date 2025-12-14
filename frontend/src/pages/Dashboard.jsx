@@ -144,6 +144,7 @@ Key Highlights:
   const tools = [
     { icon: <FileText className="w-6 h-6" />, label: 'Financial Statement', path: '/analysis', type: 'statement' },
     { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Analysis', path: '/earnings', type: 'earnings' },
+    { icon: <TrendingUp className="w-6 h-6" />, label: 'Earnings Quality Score', path: '/earnings-quality', type: 'earnings_quality', highlight: true },
     { icon: <BarChart3 className="w-6 h-6" />, label: 'Industry Map', path: '/industry', type: 'industry' },
     { icon: <Shield className="w-6 h-6" />, label: 'Red Flags', path: '/red-flags', type: 'red_flags' },
     { icon: <Shield className="w-6 h-6" />, label: 'Consistency Engine', path: '/consistency', type: 'consistency', highlight: true },
