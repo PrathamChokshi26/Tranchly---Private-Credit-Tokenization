@@ -145,6 +145,14 @@ Key Highlights:
   const tools = [
     { 
       icon: <FileText className="w-6 h-6" />, 
+      label: 'Income Statement', 
+      description: 'Specialized P&L analysis • Revenue • Margins • EPS',
+      path: '/income-statement', 
+      type: 'income_statement',
+      highlight: true
+    },
+    { 
+      icon: <FileText className="w-6 h-6" />, 
       label: 'Financial Statement', 
       description: 'Deep dive into P&L, balance sheet, and cash flows',
       path: '/analysis', 
