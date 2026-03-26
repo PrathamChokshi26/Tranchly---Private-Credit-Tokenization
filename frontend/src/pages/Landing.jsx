@@ -1,173 +1,193 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '../components/ui/button';
-import { ArrowRight, TrendingUp, BarChart3, Shield, Zap, Brain, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import axios from 'axios';
+import { ArrowRight, Shield, Zap, TrendingUp, Users, Landmark, BarChart3, ChevronRight } from 'lucide-react';
 
-const Landing = () => {
-  const navigate = useNavigate();
-  const [isVisible, setIsVisible] = useState(false);
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
+export default function Landing() {
+  const [stats, setStats] = useState({ total_loans: 0, total_investors: 0, avg_yield: 11.5, total_invested: 0 });
 
   useEffect(() => {
-    setIsVisible(true);
+    axios.get(`${BACKEND_URL}/api/stats`).then(r => setStats(r.data)).catch(() => {});
   }, []);
 
-  const features = [
-    {
-      icon: <FileText className="w-8 h-8" />,
-      title: 'Financial Statement Analysis',
-      description: 'Break down complex statements into simple insights with AI-powered analysis'
-    },
-    {
-      icon: <TrendingUp className="w-8 h-8" />,
-      title: 'Earnings Intelligence',
-      description: 'Extract key insights from earnings calls, detect sentiment, and track guidance'
-    },
-    {
-      icon: <BarChart3 className="w-8 h-8" />,
-      title: 'Industry Mapping',
-      description: 'Visualize entire industries, value chains, and competitive dynamics'
-    },
-    {
-      icon: <Shield className="w-8 h-8" />,
-      title: 'Red Flag Detection',
-      description: 'Automatically identify accounting anomalies and financial risks'
-    },
-    {
-      icon: <Zap className="w-8 h-8" />,
-      title: 'Portfolio Analytics',
-      description: 'Comprehensive portfolio analysis with diversification and risk metrics'
-    },
-    {
-      icon: <Brain className="w-8 h-8" />,
-      title: 'Business Simulator',
-      description: 'Interactive modeling to understand how business drivers affect outcomes'
-    }
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0a0a0b] via-[#121214] to-[#0a0a0b] text-white overflow-hidden">
-      {/* Hero Section */}
-      <div className="relative">
-        {/* Subtle gradient orbs */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl" />
-        <div className="absolute top-40 right-1/4 w-96 h-96 bg-purple-500/5 rounded-full blur-3xl" />
-        
-        {/* Navigation */}
-        <nav className="relative z-10 px-6 py-6 max-w-7xl mx-auto">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-xl flex items-center justify-center backdrop-blur-sm border border-white/10">
-                <TrendingUp className="w-6 h-6 text-blue-400" />
-              </div>
-              <span className="text-xl font-semibold" style={{fontFamily: 'Space Grotesk, sans-serif'}}>FinanceAI</span>
-            </div>
-            <Button
-              data-testid="nav-dashboard-btn"
-              onClick={() => navigate('/dashboard')}
-              className="bg-white/10 hover:bg-white/15 border border-white/10 text-white backdrop-blur-sm rounded-full px-6"
-            >
-              Open Dashboard
-            </Button>
+    <div className="min-h-screen bg-white">
+      {/* Nav */}
+      <nav className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-teal-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
+            <span className="text-xl font-bold text-gray-900">Slice</span>
           </div>
-        </nav>
+          <div className="flex items-center gap-4">
+            <Link to="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900">Log in</Link>
+            <Link to="/signup" className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-purple-800 transition-all shadow-sm">
+              Get Started <ArrowRight className="inline ml-1" size={14} />
+            </Link>
+          </div>
+        </div>
+      </nav>
 
-        {/* Hero Content */}
-        <div className={`relative z-10 max-w-6xl mx-auto px-6 pt-20 pb-32 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-          <div className="text-center space-y-8">
-            <div className="inline-block">
-              <div className="flex items-center space-x-2 bg-white/5 border border-white/10 rounded-full px-4 py-2 backdrop-blur-sm">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                <span className="text-sm text-gray-400">Powered by GPT-5</span>
-              </div>
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-50 via-white to-teal-50" />
+        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" />
+        <div className="absolute top-40 right-10 w-72 h-72 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ animationDelay: '2s' }} />
+        
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-medium mb-6">
+              <Zap size={14} /> Private Credit, Tokenized
             </div>
-            
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight" style={{fontFamily: 'Space Grotesk, sans-serif'}}>
-              <span className="gradient-text">The Future of</span>
-              <br />
-              <span className="text-white">Financial Research</span>
+            <h1 className="text-5xl lg:text-6xl font-bold text-gray-900 leading-tight">
+              Invest in <span className="bg-gradient-to-r from-purple-600 to-teal-500 bg-clip-text text-transparent">real business loans</span> starting at $50
             </h1>
-            
-            <p className="text-lg sm:text-xl text-gray-400 max-w-3xl mx-auto leading-relaxed">
-              An elegant, intelligent workspace that transforms complex financial statements,
-              earnings reports, and market data into simple, actionable insights
+            <p className="mt-6 text-xl text-gray-600 leading-relaxed">
+              Slice connects SME borrowers with retail investors through blockchain-backed loan tokens. 
+              Earn yield from real business repayments. No middlemen, no minimums.
             </p>
-
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-8">
-              <Button
-                data-testid="get-started-btn"
-                onClick={() => navigate('/dashboard')}
-                size="lg"
-                className="bg-white text-black hover:bg-gray-200 rounded-full px-8 py-6 text-lg font-medium shadow-xl shadow-white/10 group"
-              >
-                Get Started
-                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </Button>
-              <Button
-                data-testid="workspace-btn"
-                onClick={() => navigate('/workspace')}
-                size="lg"
-                variant="outline"
-                className="border-white/20 hover:bg-white/5 text-white rounded-full px-8 py-6 text-lg backdrop-blur-sm"
-              >
-                Explore Features
-              </Button>
+            <div className="mt-8 flex flex-wrap gap-4">
+              <Link to="/signup" className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-3 rounded-xl text-base font-semibold hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg shadow-purple-200">
+                Start Investing <ArrowRight className="inline ml-2" size={16} />
+              </Link>
+              <Link to="/signup" className="bg-white text-gray-700 px-6 py-3 rounded-xl text-base font-semibold border-2 border-gray-200 hover:border-purple-300 hover:text-purple-700 transition-all">
+                Apply for a Loan
+              </Link>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Features Grid */}
-      <div className="relative z-10 max-w-7xl mx-auto px-6 pb-32">
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              data-testid={`feature-card-${index}`}
-              className="glass-panel p-8 hover-lift cursor-pointer group"
-              style={{
-                animationDelay: `${index * 100}ms`,
-                opacity: isVisible ? 1 : 0,
-                transform: isVisible ? 'translateY(0)' : 'translateY(20px)',
-                transition: 'all 0.6s cubic-bezier(0.16, 1, 0.3, 1)'
-              }}
-            >
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500 border border-white/10">
-                <div className="text-blue-400">
-                  {feature.icon}
-                </div>
-              </div>
-              <h3 className="text-xl font-semibold mb-3 text-white" style={{fontFamily: 'Space Grotesk, sans-serif'}}>
-                {feature.title}
-              </h3>
-              <p className="text-gray-400 leading-relaxed">
-                {feature.description}
-              </p>
+      {/* Stats Bar */}
+      <section className="bg-[#0f172a] py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-2 md:grid-cols-4 gap-6">
+          {[
+            { label: 'Loans Originated', value: stats.total_loans || '0' },
+            { label: 'Total Investors', value: stats.total_investors || '0' },
+            { label: 'Avg. Yield (APR)', value: `${stats.avg_yield}%` },
+            { label: 'Total Invested', value: `$${(stats.total_invested || 0).toLocaleString()}` },
+          ].map((s, i) => (
+            <div key={i} className="text-center">
+              <p className="text-2xl lg:text-3xl font-bold text-white">{s.value}</p>
+              <p className="text-sm text-slate-400 mt-1">{s.label}</p>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* CTA Section */}
-      <div className="relative z-10 max-w-5xl mx-auto px-6 pb-32">
-        <div className="glass-panel p-12 text-center space-y-6">
-          <h2 className="text-3xl sm:text-4xl font-bold" style={{fontFamily: 'Space Grotesk, sans-serif'}}>
-            Ready to transform your research workflow?
-          </h2>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Join the future of financial analysis. Start analyzing documents, tracking companies, and gaining insights in minutes.
-          </p>
-          <Button
-            data-testid="cta-start-btn"
-            onClick={() => navigate('/dashboard')}
-            size="lg"
-            className="bg-white text-black hover:bg-gray-200 rounded-full px-8 py-6 text-lg font-medium shadow-xl shadow-white/10"
-          >
-            Start Free
-          </Button>
+      {/* How It Works */}
+      <section className="py-20 lg:py-28">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">How Slice Works</h2>
+            <p className="mt-4 text-lg text-gray-500">Simple for borrowers. Powerful for investors.</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-12 lg:gap-20">
+            {/* For Investors */}
+            <div>
+              <h3 className="text-lg font-bold text-purple-600 mb-6 flex items-center gap-2">
+                <TrendingUp size={20} /> For Investors
+              </h3>
+              <div className="space-y-6">
+                {[
+                  { step: '01', title: 'Browse Loan Tokens', desc: 'Explore vetted SME loans graded A through C with transparent credit scores and projected yields.' },
+                  { step: '02', title: 'Invest from $50', desc: 'Buy fractional loan tokens. Each token represents a slice of a real business loan earning interest.' },
+                  { step: '03', title: 'Earn Yield Automatically', desc: 'As borrowers repay, yield is distributed to your wallet in USDC. Track everything in real-time.' },
+                ].map((item, i) => (
+                  <div key={i} className="flex gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-sm flex-shrink-0">{item.step}</div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{item.title}</h4>
+                      <p className="text-sm text-gray-500 mt-1">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* For Borrowers */}
+            <div>
+              <h3 className="text-lg font-bold text-teal-600 mb-6 flex items-center gap-2">
+                <Landmark size={20} /> For Borrowers
+              </h3>
+              <div className="space-y-6">
+                {[
+                  { step: '01', title: 'Apply in Minutes', desc: 'Submit your business info and connect your bank data. Our AI scores your credit instantly.' },
+                  { step: '02', title: 'Get Funded by the Crowd', desc: 'Once approved, investors buy tokens representing your loan. No banks, no gatekeepers.' },
+                  { step: '03', title: 'Build Your Capital Passport', desc: 'Every on-time repayment builds your on-chain credit history — your Capital Passport NFT.' },
+                ].map((item, i) => (
+                  <div key={i} className="flex gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-teal-100 text-teal-600 flex items-center justify-center font-bold text-sm flex-shrink-0">{item.step}</div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{item.title}</h4>
+                      <p className="text-sm text-gray-500 mt-1">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Features */}
+      <section className="bg-gray-50 py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900">Built for Trust & Transparency</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              { icon: Shield, title: 'Credit Scoring Engine', desc: '12-signal proprietary credit model analyzing cash flow, debt, maturity, and repayment history.', color: 'purple' },
+              { icon: Zap, title: 'Mock Blockchain Layer', desc: 'Every transaction gets a verifiable hash. Token minting, transfers, and yield — all on-chain.', color: 'teal' },
+              { icon: BarChart3, title: 'Real-time Yield Tracking', desc: 'Watch your earnings grow with every borrower repayment. Pro-rata distribution, automatically.', color: 'emerald' },
+              { icon: Users, title: 'Secondary Marketplace', desc: 'Need liquidity? Sell your loan tokens to other investors at market price. Instant settlement.', color: 'blue' },
+              { icon: Landmark, title: 'Capital Passport', desc: 'Borrowers build on-chain credit history. Better repayment = better rates = more capital.', color: 'amber' },
+              { icon: TrendingUp, title: '8-18% APR', desc: 'Competitive yields backed by real business cash flows. Not DeFi ponzinomics — real revenue.', color: 'purple' },
+            ].map((f, i) => {
+              const Icon = f.icon;
+              const bgColors = { purple: 'bg-purple-100 text-purple-600', teal: 'bg-teal-100 text-teal-600', emerald: 'bg-emerald-100 text-emerald-600', blue: 'bg-blue-100 text-blue-600', amber: 'bg-amber-100 text-amber-600' };
+              return (
+                <div key={i} className="bg-white rounded-xl border p-6 hover:shadow-lg transition-shadow">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bgColors[f.color]} mb-4`}>
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="font-semibold text-gray-900 mb-2">{f.title}</h3>
+                  <p className="text-sm text-gray-500">{f.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-20">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Ready to slice into private credit?</h2>
+          <p className="mt-4 text-lg text-gray-500">Join the future of lending. Whether you're growing a business or growing your portfolio.</p>
+          <div className="mt-8 flex flex-wrap justify-center gap-4">
+            <Link to="/signup" className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-8 py-3.5 rounded-xl text-base font-semibold hover:from-purple-700 hover:to-purple-800 shadow-lg shadow-purple-200">
+              Create Account <ChevronRight className="inline ml-1" size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-[#0f172a] text-slate-400 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-teal-400 rounded-lg flex items-center justify-center text-white font-bold text-xs">S</div>
+            <span className="text-lg font-bold text-white">Slice</span>
+          </div>
+          <p className="text-sm">Private credit, tokenized. Connecting SME borrowers with retail investors through blockchain-backed loan tokens.</p>
+          <div className="mt-6 pt-6 border-t border-slate-800 text-xs">&copy; {new Date().getFullYear()} Slice. All rights reserved. Mock blockchain — for demonstration purposes.</div>
+        </div>
+      </footer>
     </div>
   );
-};
-
-export default Landing;
+}

@@ -1,1356 +1,908 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
-import io
-import PyPDF2
-import openpyxl
-from docx import Document
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import math
+
+from auth import hash_password, verify_password, create_access_token, get_current_user, require_role
+from credit_engine import calculate_credit_score
+from mock_blockchain import (
+    generate_tx_hash, generate_wallet_address,
+    create_mint_transaction, create_buy_transaction,
+    create_yield_transaction, create_resale_transaction
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+# MongoDB
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'slice_platform')]
 
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
+app = FastAPI(title="Slice Platform API")
 api_router = APIRouter(prefix="/api")
 
-# LLM API Key
-LLM_API_KEY = os.environ.get('EMERGENT_LLM_KEY')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# ============= MODELS =============
+# ============= PYDANTIC MODELS =============
 
-class FinancialDocument(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str = "default_user"
-    filename: str
-    file_type: str
-    content: str
-    upload_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = {}
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    role: str  # "borrower" | "investor" | "admin"
 
-class Analysis(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    document_id: Optional[str] = None
-    analysis_type: str
-    content: str
-    result: Dict[str, Any]
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
-class Portfolio(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str = "default_user"
-    name: str
-    holdings: List[Dict[str, Any]]
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class LoanApplicationRequest(BaseModel):
+    business_name: str
+    industry: str
+    years_operating: float
+    monthly_revenue: float
+    loan_amount_requested: float
+    loan_purpose: str
+    bank_balance: Optional[float] = None
+    monthly_expenses: Optional[float] = None
+    existing_debt: Optional[float] = 0
+    existing_loans: Optional[int] = 0
+    bureau_score: Optional[int] = 680
+    revenue_trend: Optional[float] = 0.05
+    customer_retention: Optional[float] = 0.80
+    payroll_consistency: Optional[float] = 0.85
 
-class Company(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    tracked: bool = False
-    notes: str = ""
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class InvestRequest(BaseModel):
+    loan_id: str
+    token_count: int
 
-class AnalysisRequest(BaseModel):
-    content: str
-    analysis_type: str
-    document_id: Optional[str] = None
+class ListTokenRequest(BaseModel):
+    token_id: str
+    asking_price: float
 
-class SimulationRequest(BaseModel):
-    company_name: str
-    revenue_growth: float
-    gross_margin: float
-    operating_leverage: float
-    capex_intensity: float
+class BuyListingRequest(BaseModel):
+    listing_id: str
 
-class PortfolioCreate(BaseModel):
-    name: str
-    holdings: List[Dict[str, Any]]
+class LoanActionRequest(BaseModel):
+    term_months: Optional[int] = 12
 
-class CompanyCreate(BaseModel):
-    name: str
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    notes: str = ""
+class SimulateRepaymentRequest(BaseModel):
+    loan_id: str
 
-# ============= HELPER FUNCTIONS =============
+# ============= AUTH ENDPOINTS =============
 
-async def get_llm_analysis(prompt: str, context: str = "") -> str:
-    """Get AI analysis using emergentintegrations"""
-    try:
-        chat = LlmChat(
-            api_key=LLM_API_KEY,
-            session_id=str(uuid.uuid4()),
-            system_message="You are a financial analysis expert with deep knowledge of financial statements, accounting, valuation, and investment analysis. Provide clear, insightful analysis."
-        ).with_model("openai", "gpt-5")
+@api_router.post("/auth/signup")
+async def signup(req: SignupRequest):
+    if req.role not in ["borrower", "investor", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    
+    existing = await db.users.find_one({"email": req.email.lower()})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": req.email.lower(),
+        "password_hash": hash_password(req.password),
+        "full_name": req.full_name,
+        "role": req.role,
+        "wallet_address": generate_wallet_address(),
+        "usdc_balance": 50000.0 if req.role == "investor" else 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    await db.users.insert_one(user)
+    
+    token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"], "name": user["full_name"]})
+    
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "wallet_address": user["wallet_address"],
+            "usdc_balance": user["usdc_balance"],
+        }
+    }
+
+@api_router.post("/auth/login")
+async def login(req: LoginRequest):
+    user = await db.users.find_one({"email": req.email.lower()})
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"], "name": user["full_name"]})
+    
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "wallet_address": user["wallet_address"],
+            "usdc_balance": user.get("usdc_balance", 0),
+        }
+    }
+
+@api_router.get("/auth/me")
+async def get_me(request: Request):
+    payload = await get_current_user(request)
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"user": user}
+
+# ============= PLATFORM STATS =============
+
+@api_router.get("/stats")
+async def get_platform_stats():
+    total_loans = await db.loans.count_documents({"status": {"$in": ["approved", "funded", "repaying", "completed"]}})
+    total_investors = await db.users.count_documents({"role": "investor"})
+    total_borrowed = 0
+    total_invested = 0
+    
+    loans = await db.loans.find({"status": {"$in": ["funded", "repaying", "completed"]}}).to_list(1000)
+    for loan in loans:
+        total_borrowed += loan.get("loan_amount_approved", 0)
+        total_invested += loan.get("tokens_sold", 0) * loan.get("token_price", 50)
+    
+    avg_yield = 11.5  # platform average APR
+    if loans:
+        rates = [l.get("interest_rate", 11.5) for l in loans]
+        avg_yield = round(sum(rates) / len(rates), 1)
+    
+    return {
+        "total_loans": total_loans,
+        "total_investors": total_investors,
+        "total_borrowed": total_borrowed,
+        "total_invested": total_invested,
+        "avg_yield": avg_yield,
+        "total_borrowers": await db.users.count_documents({"role": "borrower"}),
+    }
+
+# ============= BORROWER: LOAN APPLICATION =============
+
+@api_router.post("/loans/apply")
+async def apply_for_loan(req: LoanApplicationRequest, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "borrower":
+        raise HTTPException(status_code=403, detail="Only borrowers can apply for loans")
+    
+    if req.loan_amount_requested < 20000 or req.loan_amount_requested > 500000:
+        raise HTTPException(status_code=400, detail="Loan amount must be between $20,000 and $500,000")
+    
+    # Run credit scoring
+    score_result = calculate_credit_score(req.model_dump())
+    
+    # Save credit score
+    credit_score_record = {
+        "id": str(uuid.uuid4()),
+        "borrower_id": user["sub"],
+        "composite_score": score_result["composite_score"],
+        "grade": score_result["grade"],
+        "suggested_apr": score_result["suggested_apr"],
+        "max_loan_amount": score_result["max_loan_amount"],
+        "signals": score_result["signals"],
+        "auto_reject_flags": score_result["auto_reject_flags"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    # Determine loan amount (min of requested and max allowed)
+    approved_amount = min(req.loan_amount_requested, score_result["max_loan_amount"]) if score_result["grade"] != "Reject" else 0
+    token_price = 50.0
+    total_tokens = int(approved_amount / token_price) if approved_amount > 0 else 0
+    
+    loan = {
+        "id": str(uuid.uuid4()),
+        "borrower_id": user["sub"],
+        "borrower_name": user.get("name", "Unknown"),
+        "business_name": req.business_name,
+        "industry": req.industry,
+        "years_operating": req.years_operating,
+        "monthly_revenue": req.monthly_revenue,
+        "loan_amount_requested": req.loan_amount_requested,
+        "loan_amount_approved": approved_amount,
+        "loan_purpose": req.loan_purpose,
+        "status": "rejected" if score_result["grade"] == "Reject" else "pending",
+        "grade": score_result["grade"],
+        "interest_rate": score_result["suggested_apr"],
+        "term_months": 12,
+        "total_tokens": total_tokens,
+        "tokens_sold": 0,
+        "token_price": token_price,
+        "credit_score_id": credit_score_record["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "approved_at": None,
+        "funded_at": None,
+    }
+    
+    credit_score_record["loan_id"] = loan["id"]
+    
+    await db.credit_scores.insert_one(credit_score_record)
+    await db.loans.insert_one(loan)
+    
+    return {
+        "success": True,
+        "loan_id": loan["id"],
+        "status": loan["status"],
+        "credit_score": {
+            "id": credit_score_record["id"],
+            "composite_score": score_result["composite_score"],
+            "grade": score_result["grade"],
+            "suggested_apr": score_result["suggested_apr"],
+            "max_loan_amount": score_result["max_loan_amount"],
+            "auto_reject_flags": score_result["auto_reject_flags"],
+            "signals": score_result["signals"],
+        }
+    }
+
+@api_router.get("/loans/my-loans")
+async def get_my_loans(request: Request):
+    user = await get_current_user(request)
+    loans = await db.loans.find(
+        {"borrower_id": user["sub"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {"loans": loans}
+
+@api_router.get("/loans/{loan_id}")
+async def get_loan_detail(loan_id: str, request: Request):
+    await get_current_user(request)
+    loan = await db.loans.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    
+    credit_score = await db.credit_scores.find_one({"loan_id": loan_id}, {"_id": 0})
+    repayments = await db.repayments.find({"loan_id": loan_id}, {"_id": 0}).sort("due_date", 1).to_list(100)
+    
+    return {"loan": loan, "credit_score": credit_score, "repayments": repayments}
+
+@api_router.get("/loans/{loan_id}/credit-score")
+async def get_loan_credit_score(loan_id: str, request: Request):
+    await get_current_user(request)
+    score = await db.credit_scores.find_one({"loan_id": loan_id}, {"_id": 0})
+    if not score:
+        raise HTTPException(status_code=404, detail="Credit score not found")
+    return {"credit_score": score}
+
+# ============= BORROWER: CAPITAL PASSPORT =============
+
+@api_router.get("/borrower/passport")
+async def get_capital_passport(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "borrower":
+        raise HTTPException(status_code=403, detail="Only borrowers have a Capital Passport")
+    
+    loans = await db.loans.find({"borrower_id": user["sub"]}, {"_id": 0}).to_list(100)
+    
+    total_loans = len(loans)
+    completed = sum(1 for l in loans if l["status"] == "completed")
+    active = sum(1 for l in loans if l["status"] in ["funded", "repaying"])
+    
+    grades = [l["grade"] for l in loans if l["grade"] != "Reject"]
+    best_grade = min(grades, key=lambda g: ["A", "B", "C"].index(g)) if grades else "N/A"
+    
+    total_repaid = 0
+    total_due = 0
+    repayments = await db.repayments.find({"loan_id": {"$in": [l["id"] for l in loans]}}, {"_id": 0}).to_list(1000)
+    for r in repayments:
+        total_due += r.get("amount", 0)
+        if r.get("status") == "paid":
+            total_repaid += r.get("amount", 0)
+    
+    repayment_rate = round((total_repaid / total_due * 100), 1) if total_due > 0 else 100.0
+    
+    return {
+        "passport": {
+            "borrower_name": user.get("name", "Unknown"),
+            "wallet_address": (await db.users.find_one({"id": user["sub"]})).get("wallet_address", ""),
+            "total_loans": total_loans,
+            "completed_loans": completed,
+            "active_loans": active,
+            "best_grade": best_grade,
+            "repayment_rate": repayment_rate,
+            "total_borrowed": sum(l.get("loan_amount_approved", 0) for l in loans),
+            "total_repaid": total_repaid,
+            "loan_history": [
+                {
+                    "id": l["id"],
+                    "business_name": l["business_name"],
+                    "amount": l["loan_amount_approved"],
+                    "grade": l["grade"],
+                    "status": l["status"],
+                    "date": l["created_at"],
+                }
+                for l in loans
+            ],
+            "member_since": loans[0]["created_at"] if loans else datetime.now(timezone.utc).isoformat(),
+        }
+    }
+
+# ============= INVESTOR: MARKETPLACE =============
+
+@api_router.get("/marketplace/loans")
+async def get_marketplace_loans(request: Request, grade: Optional[str] = None, industry: Optional[str] = None):
+    await get_current_user(request)
+    
+    query = {"status": {"$in": ["approved", "funded", "repaying"]}}
+    if grade:
+        query["grade"] = grade.upper()
+    if industry:
+        query["industry"] = industry
+    
+    loans = await db.loans.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    result = []
+    for loan in loans:
+        tokens_available = loan["total_tokens"] - loan["tokens_sold"]
+        if tokens_available > 0 or loan["status"] in ["funded", "repaying"]:
+            result.append({
+                **loan,
+                "tokens_available": tokens_available,
+                "percent_funded": round((loan["tokens_sold"] / loan["total_tokens"] * 100), 1) if loan["total_tokens"] > 0 else 0,
+            })
+    
+    return {"loans": result}
+
+@api_router.post("/marketplace/invest")
+async def invest_in_loan(req: InvestRequest, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors can invest")
+    
+    loan = await db.loans.find_one({"id": req.loan_id})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan["status"] not in ["approved", "funded", "repaying"]:
+        raise HTTPException(status_code=400, detail="Loan not available for investment")
+    
+    tokens_available = loan["total_tokens"] - loan["tokens_sold"]
+    if req.token_count > tokens_available:
+        raise HTTPException(status_code=400, detail=f"Only {tokens_available} tokens available")
+    if req.token_count < 1:
+        raise HTTPException(status_code=400, detail="Must buy at least 1 token")
+    
+    total_cost = req.token_count * loan["token_price"]
+    
+    investor = await db.users.find_one({"id": user["sub"]})
+    if not investor or investor.get("usdc_balance", 0) < total_cost:
+        raise HTTPException(status_code=400, detail="Insufficient USDC balance")
+    
+    # Deduct balance
+    await db.users.update_one({"id": user["sub"]}, {"$inc": {"usdc_balance": -total_cost}})
+    
+    # Create token records
+    token_ids = []
+    for i in range(req.token_count):
+        token = {
+            "id": str(uuid.uuid4()),
+            "loan_id": req.loan_id,
+            "token_index": loan["tokens_sold"] + i + 1,
+            "owner_id": user["sub"],
+            "price": loan["token_price"],
+            "status": "sold",
+            "mint_tx_hash": generate_tx_hash(),
+            "purchase_tx_hash": generate_tx_hash(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.loan_tokens.insert_one(token)
+        token_ids.append(token["id"])
+    
+    # Update loan tokens_sold
+    new_sold = loan["tokens_sold"] + req.token_count
+    new_status = loan["status"]
+    if new_sold >= loan["total_tokens"] and loan["status"] == "approved":
+        new_status = "funded"
+    
+    await db.loans.update_one(
+        {"id": req.loan_id},
+        {"$set": {"tokens_sold": new_sold, "status": new_status, "funded_at": datetime.now(timezone.utc).isoformat() if new_status == "funded" else loan.get("funded_at")}}
+    )
+    
+    # Create investment record
+    investment = {
+        "id": str(uuid.uuid4()),
+        "investor_id": user["sub"],
+        "loan_id": req.loan_id,
+        "token_ids": token_ids,
+        "token_count": req.token_count,
+        "amount_invested": total_cost,
+        "yield_earned": 0,
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.investments.insert_one(investment)
+    
+    # Log blockchain transaction
+    tx = create_buy_transaction(investor["wallet_address"], req.loan_id, req.token_count, total_cost)
+    await db.transactions.insert_one(tx)
+    
+    return {
+        "success": True,
+        "investment_id": investment["id"],
+        "tokens_purchased": req.token_count,
+        "total_cost": total_cost,
+        "tx_hash": tx["tx_hash"],
+        "new_balance": investor["usdc_balance"] - total_cost,
+    }
+
+# ============= INVESTOR: PORTFOLIO =============
+
+@api_router.get("/portfolio")
+async def get_portfolio(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors have portfolios")
+    
+    investor = await db.users.find_one({"id": user["sub"]}, {"_id": 0, "password_hash": 0})
+    
+    investments = await db.investments.find({"investor_id": user["sub"]}, {"_id": 0}).to_list(1000)
+    
+    total_invested = sum(inv["amount_invested"] for inv in investments)
+    total_yield = sum(inv.get("yield_earned", 0) for inv in investments)
+    active_positions = sum(1 for inv in investments if inv["status"] == "active")
+    
+    # Enrich investments with loan data
+    enriched = []
+    for inv in investments:
+        loan = await db.loans.find_one({"id": inv["loan_id"]}, {"_id": 0})
+        if loan:
+            enriched.append({
+                **inv,
+                "loan": {
+                    "business_name": loan["business_name"],
+                    "grade": loan["grade"],
+                    "interest_rate": loan["interest_rate"],
+                    "status": loan["status"],
+                    "industry": loan["industry"],
+                }
+            })
+    
+    return {
+        "portfolio": {
+            "total_invested": total_invested,
+            "total_yield_earned": total_yield,
+            "active_positions": active_positions,
+            "usdc_balance": investor.get("usdc_balance", 0),
+            "investments": enriched,
+        }
+    }
+
+@api_router.get("/portfolio/yield-history")
+async def get_yield_history(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors can view yield history")
+    
+    yields = await db.yield_payments.find(
+        {"investor_id": user["sub"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    
+    return {"yield_history": yields}
+
+@api_router.get("/portfolio/tokens")
+async def get_my_tokens(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors can view tokens")
+    
+    tokens = await db.loan_tokens.find({"owner_id": user["sub"]}, {"_id": 0}).to_list(1000)
+    
+    enriched = []
+    for token in tokens:
+        loan = await db.loans.find_one({"id": token["loan_id"]}, {"_id": 0})
+        if loan:
+            enriched.append({
+                **token,
+                "loan": {
+                    "business_name": loan["business_name"],
+                    "grade": loan["grade"],
+                    "interest_rate": loan["interest_rate"],
+                    "status": loan["status"],
+                }
+            })
+    
+    return {"tokens": enriched}
+
+# ============= SECONDARY MARKETPLACE =============
+
+@api_router.post("/marketplace/list-token")
+async def list_token_for_sale(req: ListTokenRequest, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors can list tokens")
+    
+    token = await db.loan_tokens.find_one({"id": req.token_id, "owner_id": user["sub"]})
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found or not owned by you")
+    if token["status"] == "listed_for_resale":
+        raise HTTPException(status_code=400, detail="Token already listed")
+    
+    listing = {
+        "id": str(uuid.uuid4()),
+        "token_id": req.token_id,
+        "loan_id": token["loan_id"],
+        "seller_id": user["sub"],
+        "asking_price": req.asking_price,
+        "original_price": token["price"],
+        "status": "active",
+        "buyer_id": None,
+        "tx_hash": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    await db.token_listings.insert_one(listing)
+    await db.loan_tokens.update_one({"id": req.token_id}, {"$set": {"status": "listed_for_resale"}})
+    
+    return {"success": True, "listing_id": listing["id"]}
+
+@api_router.get("/marketplace/secondary")
+async def get_secondary_listings(request: Request):
+    await get_current_user(request)
+    
+    listings = await db.token_listings.find({"status": "active"}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    enriched = []
+    for listing in listings:
+        loan = await db.loans.find_one({"id": listing["loan_id"]}, {"_id": 0})
+        seller = await db.users.find_one({"id": listing["seller_id"]}, {"_id": 0, "password_hash": 0})
+        if loan:
+            enriched.append({
+                **listing,
+                "loan": {
+                    "business_name": loan["business_name"],
+                    "grade": loan["grade"],
+                    "interest_rate": loan["interest_rate"],
+                    "industry": loan["industry"],
+                },
+                "seller_name": seller.get("full_name", "Anonymous") if seller else "Anonymous",
+            })
+    
+    return {"listings": enriched}
+
+@api_router.post("/marketplace/buy-listing")
+async def buy_listing(req: BuyListingRequest, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "investor":
+        raise HTTPException(status_code=403, detail="Only investors can buy tokens")
+    
+    listing = await db.token_listings.find_one({"id": req.listing_id, "status": "active"})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found or already sold")
+    
+    if listing["seller_id"] == user["sub"]:
+        raise HTTPException(status_code=400, detail="Cannot buy your own listing")
+    
+    buyer = await db.users.find_one({"id": user["sub"]})
+    if buyer.get("usdc_balance", 0) < listing["asking_price"]:
+        raise HTTPException(status_code=400, detail="Insufficient USDC balance")
+    
+    # Transfer funds
+    await db.users.update_one({"id": user["sub"]}, {"$inc": {"usdc_balance": -listing["asking_price"]}})
+    await db.users.update_one({"id": listing["seller_id"]}, {"$inc": {"usdc_balance": listing["asking_price"]}})
+    
+    # Transfer token ownership
+    await db.loan_tokens.update_one({"id": listing["token_id"]}, {"$set": {"owner_id": user["sub"], "status": "sold"}})
+    
+    # Update listing
+    tx_hash = generate_tx_hash()
+    await db.token_listings.update_one(
+        {"id": listing["id"]},
+        {"$set": {"status": "sold", "buyer_id": user["sub"], "tx_hash": tx_hash}}
+    )
+    
+    # Log transaction
+    seller = await db.users.find_one({"id": listing["seller_id"]})
+    tx = create_resale_transaction(
+        seller.get("wallet_address", ""),
+        buyer.get("wallet_address", ""),
+        listing["token_id"],
+        listing["asking_price"]
+    )
+    await db.transactions.insert_one(tx)
+    
+    return {
+        "success": True,
+        "tx_hash": tx_hash,
+        "new_balance": buyer["usdc_balance"] - listing["asking_price"],
+    }
+
+# ============= ADMIN ENDPOINTS =============
+
+@api_router.get("/admin/applications")
+async def get_pending_applications(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loans = await db.loans.find({"status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    enriched = []
+    for loan in loans:
+        score = await db.credit_scores.find_one({"loan_id": loan["id"]}, {"_id": 0})
+        borrower = await db.users.find_one({"id": loan["borrower_id"]}, {"_id": 0, "password_hash": 0})
+        enriched.append({
+            **loan,
+            "credit_score": score,
+            "borrower": {
+                "full_name": borrower.get("full_name", "Unknown") if borrower else "Unknown",
+                "email": borrower.get("email", "") if borrower else "",
+            }
+        })
+    
+    return {"applications": enriched}
+
+@api_router.post("/admin/loans/{loan_id}/approve")
+async def approve_loan(loan_id: str, req: LoanActionRequest, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loan = await db.loans.find_one({"id": loan_id})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Loan is not pending")
+    
+    term = req.term_months or 12
+    
+    await db.loans.update_one(
+        {"id": loan_id},
+        {"$set": {
+            "status": "approved",
+            "term_months": term,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    
+    # Mint tokens (mock blockchain)
+    tx = create_mint_transaction(loan_id, loan["total_tokens"], loan["token_price"])
+    await db.transactions.insert_one(tx)
+    
+    # Generate repayment schedule
+    monthly_rate = loan["interest_rate"] / 100 / 12
+    amount = loan["loan_amount_approved"]
+    if monthly_rate > 0:
+        monthly_payment = amount * (monthly_rate * (1 + monthly_rate)**term) / ((1 + monthly_rate)**term - 1)
+    else:
+        monthly_payment = amount / term
+    
+    now = datetime.now(timezone.utc)
+    for i in range(term):
+        due_date = now + timedelta(days=30 * (i + 1))
+        remaining = amount * ((1 + monthly_rate)**(term) - (1 + monthly_rate)**(i)) / ((1 + monthly_rate)**term - 1) if monthly_rate > 0 else amount - (amount/term * i)
+        interest_portion = remaining * monthly_rate if monthly_rate > 0 else 0
+        principal_portion = monthly_payment - interest_portion
         
-        full_prompt = f"{context}\n\n{prompt}" if context else prompt
-        message = UserMessage(text=full_prompt)
-        response = await chat.send_message(message)
-        return response
-    except Exception as e:
-        logging.error(f"LLM analysis error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
+        repayment = {
+            "id": str(uuid.uuid4()),
+            "loan_id": loan_id,
+            "payment_number": i + 1,
+            "amount": round(monthly_payment, 2),
+            "principal": round(principal_portion, 2),
+            "interest": round(interest_portion, 2),
+            "due_date": due_date.isoformat(),
+            "status": "scheduled",
+            "tx_hash": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.repayments.insert_one(repayment)
+    
+    return {
+        "success": True,
+        "message": f"Loan approved with {term} month term",
+        "mint_tx_hash": tx["tx_hash"],
+        "tokens_minted": loan["total_tokens"],
+    }
 
-def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF - Optimized"""
-    try:
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        text = ""
-        # Limit to first 100 pages for speed
-        max_pages = min(len(pdf_reader.pages), 100)
-        for i in range(max_pages):
-            page_text = pdf_reader.pages[i].extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"PDF parsing error: {str(e)}")
+@api_router.post("/admin/loans/{loan_id}/reject")
+async def reject_loan(loan_id: str, request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loan = await db.loans.find_one({"id": loan_id})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    
+    await db.loans.update_one({"id": loan_id}, {"$set": {"status": "rejected"}})
+    return {"success": True, "message": "Loan rejected"}
 
-def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text from DOCX"""
-    try:
-        doc = Document(io.BytesIO(file_bytes))
-        text = "\n".join([para.text for para in doc.paragraphs])
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"DOCX parsing error: {str(e)}")
+@api_router.post("/admin/simulate-repayment")
+async def simulate_repayment(req: SimulateRepaymentRequest, request: Request):
+    """Simulate a repayment to test yield distribution flow."""
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loan = await db.loans.find_one({"id": req.loan_id})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    if loan["status"] not in ["funded", "repaying"]:
+        raise HTTPException(status_code=400, detail="Loan must be funded or repaying to simulate repayment")
+    
+    # Find next scheduled repayment
+    next_repayment = await db.repayments.find_one(
+        {"loan_id": req.loan_id, "status": "scheduled"},
+        sort=[("payment_number", 1)]
+    )
+    if not next_repayment:
+        raise HTTPException(status_code=400, detail="No scheduled repayments remaining")
+    
+    # Mark repayment as paid
+    repayment_tx = generate_tx_hash()
+    await db.repayments.update_one(
+        {"id": next_repayment["id"]},
+        {"$set": {"status": "paid", "tx_hash": repayment_tx, "paid_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Update loan status
+    if loan["status"] == "funded":
+        await db.loans.update_one({"id": req.loan_id}, {"$set": {"status": "repaying"}})
+    
+    # Check if all repayments done
+    remaining = await db.repayments.count_documents({"loan_id": req.loan_id, "status": "scheduled"})
+    if remaining == 0:
+        await db.loans.update_one({"id": req.loan_id}, {"$set": {"status": "completed"}})
+    
+    # Distribute yield to token holders
+    tokens = await db.loan_tokens.find({"loan_id": req.loan_id, "owner_id": {"$ne": None}}).to_list(10000)
+    
+    if not tokens:
+        return {"success": True, "message": "Repayment recorded but no token holders to distribute to"}
+    
+    payment_amount = next_repayment["amount"]
+    per_token_yield = payment_amount / loan["total_tokens"]
+    
+    # Group tokens by owner for batch distribution
+    owner_tokens = {}
+    for token in tokens:
+        oid = token["owner_id"]
+        if oid not in owner_tokens:
+            owner_tokens[oid] = []
+        owner_tokens[oid].append(token)
+    
+    distributions = []
+    for owner_id, owned_tokens in owner_tokens.items():
+        owner_yield = per_token_yield * len(owned_tokens)
+        
+        # Credit USDC to investor
+        await db.users.update_one({"id": owner_id}, {"$inc": {"usdc_balance": owner_yield}})
+        
+        # Update investment yield
+        await db.investments.update_many(
+            {"investor_id": owner_id, "loan_id": req.loan_id},
+            {"$inc": {"yield_earned": owner_yield}}
+        )
+        
+        investor = await db.users.find_one({"id": owner_id})
+        
+        # Create yield payment record
+        yield_payment = {
+            "id": str(uuid.uuid4()),
+            "repayment_id": next_repayment["id"],
+            "investor_id": owner_id,
+            "loan_id": req.loan_id,
+            "token_count": len(owned_tokens),
+            "amount": round(owner_yield, 2),
+            "tx_hash": generate_tx_hash(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.yield_payments.insert_one(yield_payment)
+        
+        # Log blockchain transaction
+        tx = create_yield_transaction(
+            investor.get("wallet_address", "") if investor else "",
+            owner_yield, req.loan_id, next_repayment["id"]
+        )
+        await db.transactions.insert_one(tx)
+        
+        distributions.append({
+            "investor_id": owner_id,
+            "tokens_held": len(owned_tokens),
+            "yield_amount": round(owner_yield, 2),
+        })
+    
+    return {
+        "success": True,
+        "repayment_amount": payment_amount,
+        "repayments_remaining": remaining,
+        "distributions": distributions,
+        "loan_status": "completed" if remaining == 0 else "repaying",
+    }
 
-def extract_text_from_excel(file_bytes: bytes) -> str:
-    """Extract text from Excel"""
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
-        text = ""
-        for sheet in wb.worksheets:
-            text += f"\n=== Sheet: {sheet.title} ===\n"
-            for row in sheet.iter_rows(values_only=True):
-                text += " | ".join([str(cell) if cell else "" for cell in row]) + "\n"
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Excel parsing error: {str(e)}")
+@api_router.get("/admin/analytics")
+async def get_admin_analytics(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    total_loans = await db.loans.count_documents({})
+    approved_loans = await db.loans.count_documents({"status": {"$in": ["approved", "funded", "repaying", "completed"]}})
+    pending_loans = await db.loans.count_documents({"status": "pending"})
+    rejected_loans = await db.loans.count_documents({"status": "rejected"})
+    completed_loans = await db.loans.count_documents({"status": "completed"})
+    defaulted_loans = await db.loans.count_documents({"status": "defaulted"})
+    
+    all_loans = await db.loans.find({"status": {"$in": ["approved", "funded", "repaying", "completed"]}}, {"_id": 0}).to_list(1000)
+    total_originated = sum(l.get("loan_amount_approved", 0) for l in all_loans)
+    avg_loan_size = total_originated / len(all_loans) if all_loans else 0
+    
+    total_investors = await db.users.count_documents({"role": "investor"})
+    total_borrowers = await db.users.count_documents({"role": "borrower"})
+    
+    investments = await db.investments.find({}, {"_id": 0}).to_list(10000)
+    total_investor_capital = sum(inv["amount_invested"] for inv in investments)
+    
+    default_rate = round((defaulted_loans / approved_loans * 100), 1) if approved_loans > 0 else 0
+    
+    # Grade distribution
+    grade_dist = {"A": 0, "B": 0, "C": 0, "Reject": 0}
+    all_graded = await db.loans.find({}, {"grade": 1}).to_list(1000)
+    for l in all_graded:
+        g = l.get("grade", "")
+        if g in grade_dist:
+            grade_dist[g] += 1
+    
+    return {
+        "analytics": {
+            "total_loans": total_loans,
+            "approved_loans": approved_loans,
+            "pending_loans": pending_loans,
+            "rejected_loans": rejected_loans,
+            "completed_loans": completed_loans,
+            "defaulted_loans": defaulted_loans,
+            "total_originated": total_originated,
+            "avg_loan_size": round(avg_loan_size, 2),
+            "total_investors": total_investors,
+            "total_borrowers": total_borrowers,
+            "total_investor_capital": total_investor_capital,
+            "default_rate": default_rate,
+            "grade_distribution": grade_dist,
+        }
+    }
 
-# ============= ROUTES =============
+@api_router.get("/admin/all-loans")
+async def get_all_loans(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loans = await db.loans.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {"loans": loans}
 
-@api_router.get("/")
-async def root():
-    return {"message": "Financial Research AI Platform API", "status": "online"}
+# ============= TRANSACTIONS LOG =============
+
+@api_router.get("/transactions")
+async def get_transactions(request: Request):
+    await get_current_user(request)
+    txs = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"transactions": txs}
+
+# ============= HEALTH =============
 
 @api_router.get("/health")
-async def health_check():
-    """Quick health check endpoint"""
+async def health():
     try:
-        # Test DB connection
         await db.command("ping")
-        return {"status": "healthy", "database": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {"status": "healthy", "database": "connected"}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
-@api_router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
-    """Upload and process financial document - FAST MODE"""
-    try:
-        start_time = datetime.now(timezone.utc)
-        logger.info(f"[UPLOAD START] File: {file.filename}")
-        
-        # Read file with size limit (50MB max)
-        max_size = 50 * 1024 * 1024  # 50MB
-        file_bytes = await file.read()
-        
-        if len(file_bytes) > max_size:
-            raise HTTPException(status_code=400, detail="File too large. Maximum size is 50MB")
-        
-        filename = file.filename
-        file_ext = filename.split('.')[-1].lower()
-        
-        logger.info(f"[UPLOAD] Processing {filename}, size: {len(file_bytes)} bytes")
-        
-        # Quick extraction with timeout protection
-        content = ""
-        try:
-            if file_ext == 'pdf':
-                content = extract_text_from_pdf(file_bytes)
-                file_type = 'pdf'
-            elif file_ext in ['xlsx', 'xls']:
-                content = extract_text_from_excel(file_bytes)
-                file_type = 'excel'
-            elif file_ext in ['docx', 'doc']:
-                content = extract_text_from_docx(file_bytes)
-                file_type = 'docx'
-            elif file_ext == 'txt':
-                content = file_bytes.decode('utf-8')
-                file_type = 'txt'
-            elif file_ext == 'csv':
-                content = file_bytes.decode('utf-8')
-                file_type = 'csv'
-            else:
-                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}. Supported: PDF, Excel, Word, Text, CSV")
-        except Exception as parse_error:
-            logger.error(f"[UPLOAD ERROR] Parse failed: {str(parse_error)}")
-            raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(parse_error)}")
-        
-        if not content or len(content) < 10:
-            raise HTTPException(status_code=400, detail="No content extracted from file. File may be empty or corrupted.")
-        
-        logger.info(f"[UPLOAD] Extracted {len(content)} characters")
-        
-        # Quick DB save
-        doc = FinancialDocument(
-            filename=filename,
-            file_type=file_type,
-            content=content[:100000]  # Limit to 100k chars for storage
-        )
-        
-        doc_dict = doc.model_dump()
-        doc_dict['upload_date'] = doc_dict['upload_date'].isoformat()
-        
-        try:
-            await db.documents.insert_one(doc_dict)
-            logger.info(f"[UPLOAD SUCCESS] Saved to DB: {doc.id}")
-        except Exception as db_error:
-            logger.error(f"[UPLOAD ERROR] DB save failed: {str(db_error)}")
-            raise HTTPException(status_code=500, detail="Failed to save document to database")
-        
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-        logger.info(f"[UPLOAD COMPLETE] {filename} in {elapsed:.2f}s")
-        
-        return {
-            "success": True,
-            "document_id": doc.id,
-            "filename": filename,
-            "content_length": len(content),
-            "processing_time": f"{elapsed:.2f}s",
-            "message": "Document uploaded successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[UPLOAD ERROR] Unexpected: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+# ============= APP SETUP =============
 
-@api_router.post("/analyze/statement")
-async def analyze_statement(request: AnalysisRequest):
-    """Analyze financial statement with deep insights for 10K, 10Q, Annual Reports"""
-    
-    # Detect document type for specialized prompts
-    content_lower = request.content.lower()
-    is_10k = '10-k' in content_lower or 'form 10-k' in content_lower
-    is_10q = '10-q' in content_lower or 'form 10-q' in content_lower
-    is_annual = 'annual report' in content_lower
-    
-    doc_type = "10-K filing" if is_10k else "10-Q filing" if is_10q else "Annual Report" if is_annual else "Financial Statement"
-    
-    prompt = f"""You are analyzing a {doc_type}. Provide COMPREHENSIVE financial analysis:
-
-DOCUMENT CONTENT:
-{request.content[:15000]}  
-
-REQUIRED ANALYSIS (respond in valid JSON format):
-
-{{
-  "summary": "Executive summary highlighting key findings, trends, and critical insights (5-7 sentences)",
-  
-  "line_items": {{
-    "Revenue": "Value with YoY/QoQ comparison",
-    "Gross Profit": "Value with margin %",
-    "Operating Income": "Value with margin %",
-    "Net Income": "Value with margin %",
-    "EPS": "Value with growth %",
-    "Total Assets": "Value",
-    "Total Liabilities": "Value",
-    "Shareholders Equity": "Value",
-    "Cash and Equivalents": "Value",
-    "Free Cash Flow": "Value if available"
-  }},
-  
-  "trends": {{
-    "revenue": [
-      {{"period": "Q1 2023", "value": 550}},
-      {{"period": "Q2 2023", "value": 580}},
-      {{"period": "Q3 2023", "value": 610}},
-      {{"period": "Q4 2023", "value": 760}}
-    ],
-    "growth": [
-      {{"metric": "Revenue Growth", "value": 15}},
-      {{"metric": "Gross Margin", "value": 48}},
-      {{"metric": "Operating Margin", "value": 18}},
-      {{"metric": "Net Margin", "value": 13}},
-      {{"metric": "ROE", "value": 22}}
-    ]
-  }},
-  
-  "margins": {{
-    "data": [
-      {{"name": "Gross Margin", "current": 48, "previous": 45.7, "industry": 42}},
-      {{"name": "Operating Margin", "current": 18, "previous": 16.5, "industry": 15}},
-      {{"name": "Net Margin", "current": 13, "previous": 11.8, "industry": 10}}
-    ]
-  }},
-  
-  "financial_ratios": [
-    {{"category": "Liquidity", "score": 85}},
-    {{"category": "Profitability", "score": 90}},
-    {{"category": "Efficiency", "score": 78}},
-    {{"category": "Leverage", "score": 75}},
-    {{"category": "Growth", "score": 88}}
-  ],
-  
-  "red_flags": "List any concerning trends: working capital issues, margin compression, cash flow problems, accounting irregularities, or state 'No significant red flags detected'",
-  
-  "health_score": 82,
-  
-  "key_insights": [
-    "Strategic initiative or market position insight",
-    "Operational efficiency observation",
-    "Capital allocation or liquidity insight",
-    "Risk factor or competitive pressure"
-  ],
-  
-  "segment_analysis": "Analysis of business segments if mentioned in document",
-  
-  "management_discussion": "Key points from MD&A section if available"
-}}
-
-CRITICAL: Respond ONLY with valid JSON. Extract actual numbers from the document. If data is missing, use reasonable estimates based on context."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    # Try to parse as JSON, fallback to structured text
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    # Save analysis
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="statement",
-        content=request.content[:5000],  # Store first 5000 chars
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    logger.info(f"Analysis saved with ID: {analysis.id}")
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/earnings")
-async def analyze_earnings(request: AnalysisRequest):
-    """Analyze earnings call transcript"""
-    prompt = f"""Analyze this earnings call transcript:
-
-{request.content}
-
-Provide:
-1. Quarterly performance summary
-2. Management tone and sentiment (positive/neutral/negative)
-3. Forward guidance analysis
-4. Key risks mentioned
-5. Key opportunities mentioned
-6. What investors need to know
-
-Format as JSON with: summary, sentiment, guidance, risks, opportunities, investor_takeaways"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="earnings",
-        content=request.content,
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/industry")
-async def analyze_industry(request: AnalysisRequest):
-    """Analyze industry dynamics"""
-    prompt = f"""Analyze this industry: {request.content}
-
-Provide comprehensive analysis:
-1. Industry overview and value chain
-2. Key drivers (macro, supply/demand, costs)
-3. Competitive landscape
-4. Top players and market share
-5. Margin trends and profit pools
-6. Growth opportunities
-7. Key risks and challenges
-
-Format as JSON with: overview, value_chain, drivers, competitive_landscape, top_players, margin_trends, growth_opportunities, risks"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        analysis_type="industry",
-        content=request.content,
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/red-flags")
-async def analyze_red_flags(request: AnalysisRequest):
-    """Detect accounting red flags"""
-    prompt = f"""Analyze this financial data for red flags:
-
-{request.content}
-
-Detect and explain:
-1. Revenue recognition anomalies
-2. Working capital issues
-3. Cash flow vs earnings mismatches
-4. Aggressive expense capitalization
-5. Margin compression patterns
-6. Poor cash quality indicators
-7. Off-balance-sheet liabilities
-8. Interest coverage concerns
-
-For each red flag found, provide:
-- Severity (high/medium/low)
-- Description
-- Impact assessment
-
-Also provide an overall risk score (0-100, higher = more risk)
-
-Format as JSON with: red_flags (array), overall_risk_score, summary"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text, "overall_risk_score": 50}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="red_flags",
-        content=request.content,
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/kpi")
-async def analyze_kpis(request: AnalysisRequest):
-    """Analyze business KPIs"""
-    prompt = f"""Analyze these business KPIs:
-
-{request.content}
-
-Identify and analyze:
-1. Key performance indicators relevant to this business
-2. Trends (YoY, QoQ) for each KPI
-3. What drives each KPI
-4. Industry benchmarks if applicable
-5. Areas of strength and concern
-
-Format as JSON with: kpis (array with name, value, trend, drivers), strengths, concerns"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="kpi",
-        content=request.content,
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/valuation")
-async def analyze_valuation(request: AnalysisRequest):
-    """Generate valuation narrative"""
-    style = request.document_id or "default"  # Use document_id field to pass style
-    
-    style_prompts = {
-        "buffett": "Analyze this investment like Warren Buffett would - focus on moat, management quality, and long-term value creation.",
-        "burry": "Analyze this investment like Michael Burry would - focus on deep value, contrarian indicators, and market inefficiencies.",
-        "cfa": "Analyze this investment like a CFA Level 3 candidate - comprehensive, structured, with proper valuation frameworks.",
-        "default": "Provide comprehensive investment analysis."
-    }
-    
-    style_instruction = style_prompts.get(style, style_prompts["default"])
-    
-    prompt = f"""{style_instruction}
-
-{request.content}
-
-Provide:
-1. Investment thesis
-2. Growth drivers analysis
-3. Margin outlook
-4. Competitive moat assessment
-5. Management quality
-6. Capital allocation track record
-7. Bull case scenario
-8. Bear case scenario
-9. Fair value assessment (directional: undervalued/fairly valued/overvalued)
-10. Key risks to the thesis
-
-Format as JSON with these sections."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        analysis_type="valuation",
-        content=request.content,
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/consistency")
-async def analyze_consistency(request: AnalysisRequest):
-    """Financial Consistency Engine - Cross-statement reconciliation and forensic analysis"""
-    
-    prompt = f"""You are a forensic financial analyst performing cross-statement reconciliation.
-
-FINANCIAL DATA:
-{request.content[:15000]}
-
-ANALYSIS TASKS:
-1. Reconcile net income with operating cash flow
-2. Identify sources of divergence (working capital, accruals, non-cash items)
-3. Assess whether divergence is normal or concerning
-4. Analyze balance sheet changes vs income statement
-5. Detect potential earnings manipulation indicators
-
-RESPOND IN VALID JSON FORMAT:
-
-{{
-  "summary": "Executive summary of financial statement consistency (3-4 sentences)",
-  
-  "reconciliation": {{
-    "net_income": "Value from income statement",
-    "operating_cash_flow": "Value from cash flow statement",
-    "difference": "Calculated difference",
-    "difference_percentage": "Percentage divergence"
-  }},
-  
-  "divergence_drivers": [
-    {{
-      "factor": "Working Capital Changes",
-      "impact": "Dollar amount impact",
-      "direction": "Increase/Decrease",
-      "explanation": "Why this creates divergence",
-      "normal": true/false
-    }},
-    {{
-      "factor": "Accounts Receivable Growth",
-      "impact": "Dollar amount",
-      "direction": "Increase",
-      "explanation": "AR growing faster than revenue",
-      "normal": false
-    }},
-    {{
-      "factor": "Depreciation & Amortization",
-      "impact": "Dollar amount",
-      "direction": "Add back",
-      "explanation": "Non-cash expense",
-      "normal": true
-    }}
-  ],
-  
-  "working_capital_analysis": {{
-    "accounts_receivable": {{
-      "change": "Dollar change",
-      "days_sales_outstanding": "DSO metric if available",
-      "concern_level": "Low/Medium/High"
-    }},
-    "inventory": {{
-      "change": "Dollar change", 
-      "days_inventory": "DIO metric if available",
-      "concern_level": "Low/Medium/High"
-    }},
-    "accounts_payable": {{
-      "change": "Dollar change",
-      "days_payable": "DPO metric if available",
-      "concern_level": "Low/Medium/High"
-    }}
-  }},
-  
-  "balance_sheet_pressure": {{
-    "debt_increase": "Change in total debt",
-    "equity_changes": "Changes in shareholders equity",
-    "asset_quality": "Assessment of asset composition",
-    "concerns": ["List of specific balance sheet concerns"]
-  }},
-  
-  "manipulation_indicators": [
-    {{
-      "indicator": "Revenue Recognition Timing",
-      "evidence": "Specific evidence found",
-      "severity": "Low/Medium/High"
-    }},
-    {{
-      "indicator": "Expense Capitalization",
-      "evidence": "Pattern observed",
-      "severity": "Low/Medium/High"
-    }}
-  ],
-  
-  "cash_quality_score": 85,
-  
-  "risk_assessment": {{
-    "overall_risk": "Low/Medium/High",
-    "primary_concerns": ["List top 3 concerns"],
-    "mitigating_factors": ["Positive factors"],
-    "recommendation": "Investor action recommendation"
-  }},
-  
-  "confidence_score": 82,
-  
-  "key_findings": [
-    "Most important finding 1",
-    "Most important finding 2", 
-    "Most important finding 3"
-  ],
-  
-  "reconciliation_chart_data": [
-    {{"item": "Net Income", "value": 320}},
-    {{"item": "Add: Depreciation", "value": 50}},
-    {{"item": "Less: WC Increase", "value": -80}},
-    {{"item": "Other Adjustments", "value": 10}},
-    {{"item": "Operating Cash Flow", "value": 300}}
-  ]
-}}
-
-CRITICAL RULES:
-- Use ONLY provided data, no assumptions
-- Quantify ALL differences in dollars
-- Clearly state if data is missing
-- Assign confidence based on data completeness
-- Be specific about what creates concern vs what's normal"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    # Save analysis
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="consistency",
-        content=request.content[:5000],
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    logger.info(f"Consistency analysis saved with ID: {analysis.id}")
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/earnings-quality")
-async def analyze_earnings_quality(request: AnalysisRequest):
-    """Earnings Quality Score - Distinguishes real vs engineered earnings"""
-    
-    prompt = f"""You are an expert at evaluating corporate earnings quality.
-
-FINANCIAL DATA:
-{request.content[:15000]}
-
-ANALYSIS TASKS:
-1. Compare earnings growth to cash flow growth
-2. Analyze margin expansion sources and sustainability
-3. Identify aggressive accounting indicators
-4. Detect revenue recognition timing issues
-5. Assess quality of reported EPS
-
-SCORING CRITERIA:
-- High quality (8-10): Strong cash conversion, sustainable margins, conservative accounting
-- Medium quality (5-7): Moderate concerns, some engineering, mixed signals
-- Low quality (1-4): Significant red flags, aggressive accounting, earnings trap risk
-
-RESPOND IN VALID JSON FORMAT:
-
-{{
-  "earnings_quality_score": 7,
-  
-  "summary": "Executive summary of earnings quality assessment (3-4 sentences)",
-  
-  "score_justification": "Detailed explanation of why this specific score was assigned",
-  
-  "eps_vs_cash_analysis": {{
-    "eps_growth": "X% growth YoY",
-    "operating_cash_flow_growth": "Y% growth YoY",
-    "divergence": "Z percentage points",
-    "assessment": "Growing divergence signals quality concerns / Strong alignment indicates real earnings",
-    "concern_level": "Low/Medium/High"
-  }},
-  
-  "margin_analysis": {{
-    "gross_margin_trend": "Expanding/Stable/Contracting",
-    "operating_margin_trend": "Expanding/Stable/Contracting",
-    "margin_expansion_drivers": [
-      "Operational efficiency improvements",
-      "Pricing power",
-      "Cost reduction initiatives"
-    ],
-    "sustainability_assessment": "Margins appear sustainable / Margins may face pressure",
-    "red_flags": ["One-time benefits inflating margins", "Unsustainable cost cuts"]
-  }},
-  
-  "revenue_quality": {{
-    "revenue_recognition_assessment": "Conservative / Aggressive / Normal",
-    "accounts_receivable_quality": {{
-      "dso_trend": "Improving/Stable/Deteriorating",
-      "dso_value": "X days",
-      "concern": "AR growing faster than revenue suggests pull-forward"
-    }},
-    "revenue_concentration_risk": "Low/Medium/High",
-    "one_time_items": ["List any non-recurring revenue items"]
-  }},
-  
-  "aggressive_accounting_indicators": [
-    {{
-      "indicator": "Revenue Recognition Timing",
-      "evidence": "Specific pattern observed",
-      "severity": "Low/Medium/High",
-      "impact_on_score": -1
-    }},
-    {{
-      "indicator": "Capitalized Expenses",
-      "evidence": "Rising capex-to-maintenance ratio",
-      "severity": "Medium",
-      "impact_on_score": -0.5
-    }},
-    {{
-      "indicator": "Inventory Buildup",
-      "evidence": "Inventory growing faster than COGS",
-      "severity": "Medium",
-      "impact_on_score": -0.5
-    }}
-  ],
-  
-  "key_red_flags": [
-    "EPS growing 20% while cash flow flat - major quality concern",
-    "Margins boosted by one-time restructuring benefits",
-    "DSO increased from 45 to 58 days - aggressive collections"
-  ],
-  
-  "positive_signals": [
-    "Cash conversion consistently above 100%",
-    "Conservative revenue recognition policies",
-    "Sustainable margin expansion from pricing power"
-  ],
-  
-  "earnings_trap_risk": {{
-    "risk_level": "Low/Medium/High",
-    "probability": "Percentage likelihood of earnings disappointment",
-    "key_vulnerabilities": ["What could cause earnings to disappoint"],
-    "warning_signs": ["Early indicators to watch"]
-  }},
-  
-  "quality_breakdown": {{
-    "cash_conversion_quality": 8,
-    "margin_quality": 7,
-    "revenue_quality": 6,
-    "balance_sheet_quality": 8,
-    "accounting_conservatism": 7
-  }},
-  
-  "comparison_chart_data": [
-    {{"metric": "EPS Growth", "value": 15, "benchmark": 10}},
-    {{"metric": "CFO Growth", "value": 12, "benchmark": 10}},
-    {{"metric": "Gross Margin", "value": 48, "benchmark": 45}},
-    {{"metric": "Op Margin", "value": 18, "benchmark": 15}},
-    {{"metric": "Cash Conversion", "value": 105, "benchmark": 100}}
-  ]},
-  
-  "verdict": "High Quality / Medium Quality / Low Quality - Detailed conclusion",
-  
-  "investor_action": "Buy/Hold/Avoid with specific reasoning",
-  
-  "confidence_level": 85
-}}
-
-CRITICAL RULES:
-- Score from 1-10 only (integers)
-- Quantify all growth rates and trends
-- Be specific about red flags with evidence
-- Distinguish temporary vs structural issues
-- Consider industry context where applicable"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    # Save analysis
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="earnings_quality",
-        content=request.content[:5000],
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    logger.info(f"Earnings quality analysis saved with ID: {analysis.id}")
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/income-statement")
-async def analyze_income_statement(request: AnalysisRequest):
-    """Specialized Income Statement Analysis"""
-    
-    prompt = f"""You are analyzing an Income Statement (Profit & Loss Statement).
-
-INCOME STATEMENT DATA:
-{request.content[:15000]}
-
-Perform comprehensive P&L analysis and respond in VALID JSON:
-
-{{
-  "document_type": "Income Statement",
-  "period_covered": "Quarter/Year identified",
-  
-  "summary": "Executive summary of income statement performance (4-5 sentences)",
-  
-  "revenue_analysis": {{
-    "total_revenue": "Dollar amount",
-    "revenue_growth_yoy": "X% growth",
-    "revenue_growth_qoq": "X% growth if quarterly",
-    "revenue_breakdown": [
-      {{"segment": "Product Revenue", "amount": "$X", "percentage": "Y%"}},
-      {{"segment": "Service Revenue", "amount": "$X", "percentage": "Y%"}}
-    ],
-    "revenue_quality": "Assessment of revenue sustainability and quality"
-  }},
-  
-  "profitability_metrics": {{
-    "gross_profit": "$X",
-    "gross_margin": "X%",
-    "gross_margin_trend": "Expanding/Stable/Contracting",
-    "operating_income": "$X",
-    "operating_margin": "X%",
-    "operating_margin_trend": "Expanding/Stable/Contracting",
-    "net_income": "$X",
-    "net_margin": "X%",
-    "net_margin_trend": "Expanding/Stable/Contracting",
-    "ebitda": "$X (if calculable)",
-    "ebitda_margin": "X%"
-  }},
-  
-  "cost_structure": {{
-    "cost_of_revenue": "$X",
-    "cogs_percentage": "X% of revenue",
-    "operating_expenses": "$X",
-    "opex_percentage": "X% of revenue",
-    "rd_expense": "$X",
-    "sales_marketing": "$X",
-    "general_admin": "$X",
-    "cost_efficiency": "Assessment of cost management"
-  }},
-  
-  "earnings_per_share": {{
-    "basic_eps": "$X",
-    "diluted_eps": "$X",
-    "eps_growth": "X% vs prior period",
-    "shares_outstanding": "X million",
-    "share_count_trend": "Increasing/Decreasing/Stable"
-  }},
-  
-  "margin_waterfall": [
-    {{"item": "Revenue", "value": 100, "color": "#10b981"}},
-    {{"item": "Less: COGS", "value": -52, "color": "#ef4444"}},
-    {{"item": "Gross Profit", "value": 48, "color": "#3b82f6"}},
-    {{"item": "Less: OpEx", "value": -30, "color": "#ef4444"}},
-    {{"item": "Operating Income", "value": 18, "color": "#8b5cf6"}},
-    {{"item": "Less: Taxes/Int", "value": -5, "color": "#ef4444"}},
-    {{"item": "Net Income", "value": 13, "color": "#10b981"}}
-  ],
-  
-  "key_trends": [
-    "Most significant trend 1",
-    "Most significant trend 2",
-    "Most significant trend 3"
-  ],
-  
-  "red_flags": [
-    "Any concerning patterns or anomalies"
-  ],
-  
-  "strengths": [
-    "Positive aspects of performance"
-  ],
-  
-  "yoy_comparison": {{
-    "revenue_change": "+15%",
-    "gross_margin_change": "+2.3 pp",
-    "operating_margin_change": "+1.8 pp",
-    "net_income_change": "+22%"
-  }},
-  
-  "profitability_score": 85,
-  
-  "recommendation": "Investment perspective based on P&L performance"
-}}
-
-Extract actual numbers from the document. If quarterly, include QoQ comparisons. Focus on profitability drivers and margin trends."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="income_statement",
-        content=request.content[:5000],
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/balance-sheet")
-async def analyze_balance_sheet(request: AnalysisRequest):
-    """Specialized Balance Sheet Analysis"""
-    
-    prompt = f"""You are analyzing a Balance Sheet (Statement of Financial Position).
-
-BALANCE SHEET DATA:
-{request.content[:15000]}
-
-Perform comprehensive balance sheet analysis and respond in VALID JSON:
-
-{{
-  "document_type": "Balance Sheet",
-  "as_of_date": "Date of balance sheet",
-  
-  "summary": "Executive summary of financial position and health (4-5 sentences)",
-  
-  "assets": {{
-    "total_assets": "$X",
-    "current_assets": "$X",
-    "current_assets_breakdown": [
-      {{"item": "Cash & Equivalents", "amount": "$X"}},
-      {{"item": "Accounts Receivable", "amount": "$X"}},
-      {{"item": "Inventory", "amount": "$X"}},
-      {{"item": "Other Current Assets", "amount": "$X"}}
-    ],
-    "non_current_assets": "$X",
-    "non_current_breakdown": [
-      {{"item": "Property, Plant & Equipment", "amount": "$X"}},
-      {{"item": "Intangible Assets", "amount": "$X"}},
-      {{"item": "Goodwill", "amount": "$X"}},
-      {{"item": "Other Long-term Assets", "amount": "$X"}}
-    ],
-    "asset_quality": "Assessment of asset composition and quality"
-  }},
-  
-  "liabilities": {{
-    "total_liabilities": "$X",
-    "current_liabilities": "$X",
-    "current_liabilities_breakdown": [
-      {{"item": "Accounts Payable", "amount": "$X"}},
-      {{"item": "Short-term Debt", "amount": "$X"}},
-      {{"item": "Accrued Expenses", "amount": "$X"}},
-      {{"item": "Other Current Liabilities", "amount": "$X"}}
-    ],
-    "non_current_liabilities": "$X",
-    "long_term_debt": "$X",
-    "debt_structure": "Assessment of debt maturity and terms"
-  }},
-  
-  "equity": {{
-    "total_equity": "$X",
-    "common_stock": "$X",
-    "retained_earnings": "$X",
-    "equity_structure": "Assessment of equity composition"
-  }},
-  
-  "liquidity_ratios": {{
-    "current_ratio": "X.XX",
-    "quick_ratio": "X.XX",
-    "cash_ratio": "X.XX",
-    "working_capital": "$X",
-    "liquidity_assessment": "Strong/Adequate/Weak"
-  }},
-  
-  "leverage_ratios": {{
-    "debt_to_equity": "X.XX",
-    "debt_to_assets": "X.XX",
-    "equity_ratio": "X.XX",
-    "leverage_assessment": "Conservative/Moderate/Aggressive"
-  }},
-  
-  "efficiency_metrics": {{
-    "asset_turnover": "X.XX (if revenue available)",
-    "receivables_turnover": "X.XX (if revenue available)",
-    "inventory_turnover": "X.XX (if COGS available)"
-  }},
-  
-  "balance_sheet_composition": [
-    {{"category": "Current Assets", "value": 45, "color": "#10b981"}},
-    {{"category": "Non-Current Assets", "value": 55, "color": "#3b82f6"}},
-    {{"category": "Current Liabilities", "value": 25, "color": "#ef4444"}},
-    {{"category": "Long-term Liabilities", "value": 30, "color": "#f59e0b"}},
-    {{"category": "Equity", "value": 45, "color": "#8b5cf6"}}
-  ],
-  
-  "financial_health_indicators": [
-    {{"metric": "Liquidity", "score": 85, "status": "Strong"}},
-    {{"metric": "Solvency", "score": 78, "status": "Good"}},
-    {{"metric": "Asset Quality", "score": 82, "status": "Strong"}},
-    {{"metric": "Capital Structure", "score": 75, "status": "Good"}}
-  ],
-  
-  "key_observations": [
-    "Most important observation 1",
-    "Most important observation 2",
-    "Most important observation 3"
-  ],
-  
-  "red_flags": [
-    "Any concerning balance sheet items or ratios"
-  ],
-  
-  "strengths": [
-    "Strong aspects of financial position"
-  ],
-  
-  "financial_health_score": 82,
-  
-  "recommendation": "Assessment of balance sheet strength and risks"
-}}
-
-Extract actual numbers and calculate all ratios. Focus on liquidity, leverage, and asset quality."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="balance_sheet",
-        content=request.content[:5000],
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/analyze/cash-flow")
-async def analyze_cash_flow(request: AnalysisRequest):
-    """Specialized Cash Flow Statement Analysis"""
-    
-    prompt = f"""You are analyzing a Cash Flow Statement.
-
-CASH FLOW STATEMENT DATA:
-{request.content[:15000]}
-
-Perform comprehensive cash flow analysis and respond in VALID JSON:
-
-{{
-  "document_type": "Cash Flow Statement",
-  "period_covered": "Quarter/Year identified",
-  
-  "summary": "Executive summary of cash generation and usage (4-5 sentences)",
-  
-  "operating_activities": {{
-    "net_cash_from_operations": "$X",
-    "net_income_reconciliation": "$X starting point",
-    "major_adjustments": [
-      {{"item": "Depreciation & Amortization", "amount": "$X"}},
-      {{"item": "Stock-based Compensation", "amount": "$X"}},
-      {{"item": "Changes in Working Capital", "amount": "$X"}}
-    ],
-    "operating_cash_quality": "Assessment of operating cash flow quality",
-    "cash_conversion_rate": "X% (OCF / Net Income)"
-  }},
-  
-  "investing_activities": {{
-    "net_cash_from_investing": "$X",
-    "capital_expenditures": "$X",
-    "acquisitions": "$X",
-    "asset_sales": "$X",
-    "capex_intensity": "X% of revenue if available",
-    "investment_assessment": "Growth/Maintenance/Divestiture focused"
-  }},
-  
-  "financing_activities": {{
-    "net_cash_from_financing": "$X",
-    "debt_issuance_repayment": "$X",
-    "equity_issuance_buyback": "$X",
-    "dividends_paid": "$X",
-    "financing_strategy": "Assessment of capital allocation"
-  }},
-  
-  "cash_position": {{
-    "beginning_cash": "$X",
-    "net_change_in_cash": "$X",
-    "ending_cash": "$X",
-    "cash_adequacy": "Strong/Adequate/Weak"
-  }},
-  
-  "free_cash_flow": {{
-    "fcf": "$X (OCF - CapEx)",
-    "fcf_margin": "X% if revenue available",
-    "fcf_growth": "X% vs prior period",
-    "fcf_quality": "Assessment of free cash flow sustainability"
-  }},
-  
-  "cash_flow_breakdown": [
-    {{"activity": "Operating", "amount": 300, "color": "#10b981"}},
-    {{"activity": "Investing", "amount": -120, "color": "#ef4444"}},
-    {{"activity": "Financing", "amount": -80, "color": "#f59e0b"}},
-    {{"activity": "Net Change", "amount": 100, "color": "#3b82f6"}}
-  ],
-  
-  "working_capital_changes": [
-    {{"item": "Accounts Receivable", "impact": "$X", "direction": "Use/Source"}},
-    {{"item": "Inventory", "impact": "$X", "direction": "Use/Source"}},
-    {{"item": "Accounts Payable", "impact": "$X", "direction": "Use/Source"}}
-  ],
-  
-  "cash_generation_metrics": {{
-    "operating_cash_margin": "X%",
-    "capex_to_ocf_ratio": "X%",
-    "fcf_conversion": "X%",
-    "cash_return_on_assets": "X%"
-  }},
-  
-  "key_insights": [
-    "Most important cash flow insight 1",
-    "Most important cash flow insight 2",
-    "Most important cash flow insight 3"
-  ],
-  
-  "concerns": [
-    "Any concerning cash flow patterns"
-  ],
-  
-  "strengths": [
-    "Strong aspects of cash generation"
-  ],
-  
-  "cash_generation_score": 88,
-  
-  "sustainability_assessment": "Assessment of cash flow sustainability and quality"
-}}
-
-Calculate free cash flow and all metrics. Focus on cash generation quality and sustainability."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    analysis = Analysis(
-        document_id=request.document_id,
-        analysis_type="cash_flow",
-        content=request.content[:5000],
-        result=result
-    )
-    
-    analysis_dict = analysis.model_dump()
-    analysis_dict['created_at'] = analysis_dict['created_at'].isoformat()
-    await db.analyses.insert_one(analysis_dict)
-    
-    return {"success": True, "analysis_id": analysis.id, "result": result}
-
-@api_router.post("/simulate")
-async def simulate_business(request: SimulationRequest):
-    """Simulate business model with different parameters"""
-    prompt = f"""Run a business model simulation for {request.company_name} with these parameters:
-
-- Revenue Growth: {request.revenue_growth}%
-- Gross Margin: {request.gross_margin}%
-- Operating Leverage: {request.operating_leverage}
-- CapEx Intensity: {request.capex_intensity}%
-
-Provide analysis of:
-1. Impact on profitability
-2. Impact on cash flows
-3. Impact on valuation
-4. Key risks in this scenario
-5. Sensitivity analysis (what if one parameter changes by ±20%)
-
-Format as JSON with: profitability_impact, cash_flow_impact, valuation_impact, risks, sensitivity_analysis"""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    return {"success": True, "result": result}
-
-@api_router.post("/portfolio/analyze")
-async def analyze_portfolio(portfolio: PortfolioCreate):
-    """Analyze portfolio composition and risk"""
-    holdings_text = json.dumps(portfolio.holdings, indent=2)
-    
-    prompt = f"""Analyze this investment portfolio:
-
-{holdings_text}
-
-Provide:
-1. Diversification score (0-100)
-2. Sector breakdown
-3. Risk concentration analysis
-4. Correlation risk
-5. Factor exposure (growth, value, quality, etc.)
-6. Recession sensitivity
-7. Recommendations for improvement
-8. Overall portfolio health score (0-100)
-
-Format as JSON with these sections."""
-    
-    result_text = await get_llm_analysis(prompt)
-    
-    try:
-        result = json.loads(result_text)
-    except:
-        result = {"analysis": result_text}
-    
-    # Save portfolio
-    portfolio_obj = Portfolio(
-        name=portfolio.name,
-        holdings=portfolio.holdings
-    )
-    
-    portfolio_dict = portfolio_obj.model_dump()
-    portfolio_dict['created_at'] = portfolio_dict['created_at'].isoformat()
-    await db.portfolios.insert_one(portfolio_dict)
-    
-    return {"success": True, "portfolio_id": portfolio_obj.id, "analysis": result}
-
-@api_router.get("/documents")
-async def get_documents():
-    """Get all uploaded documents"""
-    docs = await db.documents.find({}, {"_id": 0, "content": 0}).to_list(100)
-    return {"documents": docs}
-
-@api_router.get("/documents/{document_id}")
-async def get_document(document_id: str):
-    """Get a specific document with full content"""
-    doc = await db.documents.find_one({"id": document_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return doc
-
-@api_router.get("/analyses")
-async def get_analyses():
-    """Get all analyses"""
-    analyses = await db.analyses.find({}, {"_id": 0}).to_list(100)
-    return {"analyses": analyses}
-
-@api_router.get("/portfolios")
-async def get_portfolios():
-    """Get all portfolios"""
-    portfolios = await db.portfolios.find({}, {"_id": 0}).to_list(100)
-    return {"portfolios": portfolios}
-
-@api_router.post("/companies")
-async def create_company(company: CompanyCreate):
-    """Create/track a company"""
-    company_obj = Company(**company.model_dump(), tracked=True)
-    
-    company_dict = company_obj.model_dump()
-    company_dict['created_at'] = company_dict['created_at'].isoformat()
-    await db.companies.insert_one(company_dict)
-    
-    return {"success": True, "company_id": company_obj.id}
-
-@api_router.get("/companies")
-async def get_companies():
-    """Get all tracked companies"""
-    companies = await db.companies.find({"tracked": True}, {"_id": 0}).to_list(100)
-    return {"companies": companies}
-
-# Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
@@ -1360,13 +912,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
