@@ -3,7 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, FileText, Wallet, Store, TrendingUp, Shield,
-  BarChart3, Users, LogOut, Menu, X, ChevronRight, Landmark, CreditCard
+  BarChart3, Users, LogOut, Menu, X, ChevronRight, Landmark, CreditCard,
+  CheckCircle2
 } from 'lucide-react';
 
 const borrowerNav = [
@@ -24,6 +25,7 @@ const adminNav = [
   { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/admin/applications', icon: FileText, label: 'Applications' },
   { path: '/admin/loans', icon: Landmark, label: 'All Loans' },
+  { path: '/admin/users', icon: Users, label: 'Users & KYC' },
   { path: '/admin/analytics', icon: BarChart3, label: 'Analytics' },
 ];
 
@@ -96,6 +98,11 @@ export default function Layout({ children }) {
             <Menu size={24} />
           </button>
           <div className="flex-1" />
+          {user?.kyc_status === 'verified' && (
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-semibold">
+              <CheckCircle2 size={13} /> Verified
+            </div>
+          )}
           {user?.role === 'investor' && (
             <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-sm font-medium">
               <Wallet size={14} />

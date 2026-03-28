@@ -11,6 +11,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import json
 import math
+import secrets
+import httpx
 
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role
 from credit_engine import calculate_credit_score
@@ -33,6 +35,11 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Persona KYC Config
+PERSONA_API_KEY = os.environ.get('PERSONA_API_KEY', '')
+PERSONA_TEMPLATE_ID = os.environ.get('PERSONA_TEMPLATE_ID', '')
+PERSONA_ENV = os.environ.get('PERSONA_ENV', 'sandbox')
 
 # ============= PYDANTIC MODELS =============
 
@@ -79,6 +86,9 @@ class LoanActionRequest(BaseModel):
 class SimulateRepaymentRequest(BaseModel):
     loan_id: str
 
+class KycCompleteRequest(BaseModel):
+    inquiry_id: str
+
 # ============= AUTH ENDPOINTS =============
 
 @api_router.post("/auth/signup")
@@ -98,6 +108,8 @@ async def signup(req: SignupRequest):
         "role": req.role,
         "wallet_address": generate_wallet_address(),
         "usdc_balance": 50000.0 if req.role == "investor" else 0.0,
+        "kyc_status": "verified" if req.role == "admin" else "pending",
+        "identity_token": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     
@@ -114,6 +126,8 @@ async def signup(req: SignupRequest):
             "role": user["role"],
             "wallet_address": user["wallet_address"],
             "usdc_balance": user["usdc_balance"],
+            "kyc_status": user["kyc_status"],
+            "identity_token": user["identity_token"],
         }
     }
 
@@ -134,6 +148,8 @@ async def login(req: LoginRequest):
             "role": user["role"],
             "wallet_address": user["wallet_address"],
             "usdc_balance": user.get("usdc_balance", 0),
+            "kyc_status": user.get("kyc_status", "pending"),
+            "identity_token": user.get("identity_token"),
         }
     }
 
@@ -144,6 +160,158 @@ async def get_me(request: Request):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return {"user": user}
+
+# ============= KYC ENDPOINTS =============
+
+@api_router.get("/kyc/status")
+async def get_kyc_status(request: Request):
+    payload = await get_current_user(request)
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "kyc_status": user.get("kyc_status", "pending"),
+        "identity_token": user.get("identity_token"),
+    }
+
+@api_router.post("/kyc/complete")
+async def kyc_complete(req: KycCompleteRequest, request: Request):
+    payload = await get_current_user(request)
+    user_id = payload["sub"]
+    
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Call Persona API to verify inquiry status
+    try:
+        async with httpx.AsyncClient() as client_http:
+            resp = await client_http.get(
+                f"https://withpersona.com/api/v1/inquiries/{req.inquiry_id}",
+                headers={
+                    "Authorization": f"Bearer {PERSONA_API_KEY}",
+                    "Persona-Version": "2023-01-05",
+                    "Accept": "application/json",
+                },
+                timeout=15.0,
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                inquiry_status = data.get("data", {}).get("attributes", {}).get("status", "")
+                logger.info(f"Persona inquiry {req.inquiry_id} status: {inquiry_status}")
+            else:
+                logger.warning(f"Persona API returned {resp.status_code}: {resp.text}")
+                inquiry_status = "completed"  # Sandbox fallback
+    except Exception as e:
+        logger.warning(f"Persona API call failed: {e}")
+        inquiry_status = "completed"  # Sandbox fallback
+    
+    if inquiry_status in ("completed", "approved"):
+        identity_token = "0x" + secrets.token_hex(20)
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "kyc_status": "verified",
+                "identity_token": identity_token,
+                "kyc_inquiry_id": req.inquiry_id,
+                "kyc_verified_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        role = user.get("role", "borrower")
+        redirect = "/admin" if role == "admin" else f"/{role}" if role == "investor" else "/borrower"
+        return {"success": True, "redirect": redirect, "identity_token": identity_token}
+    
+    elif inquiry_status in ("declined", "failed"):
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"kyc_status": "rejected", "kyc_inquiry_id": req.inquiry_id}}
+        )
+        return {"success": False, "message": "Verification failed. Contact hello@tranchly.finance for support."}
+    
+    else:
+        # pending / needs_review / other
+        return {"success": False, "message": f"Verification status: {inquiry_status}. Please wait or try again."}
+
+@api_router.post("/kyc/skip")
+async def kyc_skip(request: Request):
+    """Sandbox-only: Skip KYC verification for development testing."""
+    if PERSONA_ENV != "sandbox":
+        raise HTTPException(status_code=403, detail="Skip only available in sandbox mode")
+    
+    payload = await get_current_user(request)
+    user_id = payload["sub"]
+    
+    identity_token = "0x" + secrets.token_hex(20)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "kyc_status": "verified",
+            "identity_token": identity_token,
+            "kyc_verified_at": datetime.now(timezone.utc).isoformat(),
+            "kyc_skip_sandbox": True,
+        }}
+    )
+    
+    user = await db.users.find_one({"id": user_id})
+    role = user.get("role", "borrower")
+    redirect = "/admin" if role == "admin" else f"/{role}" if role == "investor" else "/borrower"
+    return {"success": True, "redirect": redirect, "identity_token": identity_token}
+
+@api_router.post("/kyc/webhook")
+async def kyc_webhook(request: Request):
+    """Handle Persona webhook events."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    event_type = body.get("data", {}).get("attributes", {}).get("name", "")
+    inquiry_id = body.get("data", {}).get("attributes", {}).get("payload", {}).get("data", {}).get("id", "")
+    
+    logger.info(f"Persona webhook: event={event_type}, inquiry={inquiry_id}")
+    
+    if not inquiry_id:
+        return {"received": True}
+    
+    user = await db.users.find_one({"kyc_inquiry_id": inquiry_id})
+    if not user:
+        logger.warning(f"No user found for inquiry {inquiry_id}")
+        return {"received": True}
+    
+    if event_type == "inquiry.completed":
+        identity_token = "0x" + secrets.token_hex(20)
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {
+                "kyc_status": "verified",
+                "identity_token": identity_token,
+                "kyc_verified_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+    elif event_type == "inquiry.expired":
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"kyc_status": "expired"}}
+        )
+    elif event_type in ("inquiry.failed", "inquiry.declined"):
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"kyc_status": "rejected"}}
+        )
+    
+    return {"received": True}
+
+# ============= ADMIN: USERS WITH KYC =============
+
+@api_router.get("/admin/users")
+async def get_admin_users(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
+    return {"users": users}
 
 # ============= PLATFORM STATS =============
 

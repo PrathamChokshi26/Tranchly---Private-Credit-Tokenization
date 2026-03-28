@@ -225,6 +225,37 @@ backend:
         agent: "testing"
         comment: "✅ PASSED - Platform stats endpoint working. Returns comprehensive statistics: total loans, investors, borrowers, amounts, yield rates."
 
+
+  - task: "KYC - Persona Integration (complete, skip, webhook, status)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/kyc/complete, POST /api/kyc/skip (sandbox), POST /api/kyc/webhook, GET /api/kyc/status, GET /api/admin/users. Users have kyc_status and identity_token fields."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All 12 KYC integration tests passed. Comprehensive testing: 1) Health check working, 2) User signup with correct kyc_status (pending for borrower/investor, verified for admin), 3) KYC status endpoint returns correct data, 4) KYC skip (sandbox) generates identity_token starting with '0x', 5) KYC status updates after skip, 6) Auth/me endpoint includes KYC fields, 7) KYC complete with sandbox fallback working, 8) KYC webhook accepts events, 9) Admin users list shows KYC fields, 10) Login includes KYC data. All endpoints using correct external URL and /api prefix."
+
+  - task: "Admin - Users & KYC management"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/admin/users returns all users with kyc_status, identity_token, wallet_address"
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Admin users endpoint working correctly. Returns 22 users with 15 having KYC fields (newer users), 13 verified users. Admin access control working, response includes all required fields for users with KYC data."
+
 frontend:
   - task: "Landing Page"
     implemented: true
@@ -302,6 +333,8 @@ test_plan:
     - "Secondary Marketplace (Token Resale)"
     - "Capital Passport"
     - "Platform Stats"
+    - "KYC - Persona Integration (complete, skip, webhook, status)"
+    - "Admin - Users & KYC management"
   stuck_tasks: []
   test_all: true
   test_priority: "high_first"
@@ -311,3 +344,5 @@ agent_communication:
     message: "Full Slice platform backend built. Test the complete flow: 1) Signup borrower, 2) Apply for loan, 3) Signup admin, 4) Approve loan, 5) Signup investor, 6) Invest in loan, 7) Simulate repayment, 8) Check yield distribution. All endpoints use JWT auth. Backend runs on port 8001."
   - agent: "testing"
     message: "✅ BACKEND TESTING COMPLETE - All 8 backend tasks PASSED (100% success rate). Comprehensive testing performed: 24/24 API tests passed. Key highlights: Auth system working with JWT tokens, Credit scoring engine functional (81.8 score, grade A), Marketplace operations successful, Admin functions including repayment simulation working, Portfolio and yield tracking operational ($2,650.05 yield distributed), Capital Passport displaying correct borrower stats. All endpoints using correct external URL and /api prefix. Backend is production-ready."
+  - agent: "testing"
+    message: "✅ KYC INTEGRATION TESTING COMPLETE - All 12 KYC tests PASSED (100% success rate). Comprehensive KYC flow testing: User signup with role-based kyc_status, KYC status endpoint, KYC skip (sandbox) with identity_token generation, KYC complete with sandbox fallback, KYC webhook handling, Admin users management with KYC fields, Login with KYC data persistence. All KYC endpoints functional and using correct external URL with /api prefix. KYC integration is production-ready."

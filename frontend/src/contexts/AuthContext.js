@@ -16,16 +16,22 @@ export function AuthProvider({ children }) {
     });
   }, [token]);
 
+  const fetchUser = useCallback(() => {
+    if (token) {
+      return api().get('/api/auth/me')
+        .then(res => { setUser(res.data.user); return res.data.user; })
+        .catch(() => { localStorage.removeItem('tranchly_token'); setToken(null); return null; });
+    }
+    return Promise.resolve(null);
+  }, [token, api]);
+
   useEffect(() => {
     if (token) {
-      api().get('/api/auth/me')
-        .then(res => setUser(res.data.user))
-        .catch(() => { localStorage.removeItem('tranchly_token'); setToken(null); })
-        .finally(() => setLoading(false));
+      fetchUser().finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
-  }, [token, api]);
+  }, [token, fetchUser]);
 
   const login = async (email, password) => {
     const res = await api().post('/api/auth/login', { email, password });
@@ -49,8 +55,12 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    return fetchUser();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, signup, logout, api: api() }}>
+    <AuthContext.Provider value={{ user, token, loading, login, signup, logout, refreshUser, api: api() }}>
       {children}
     </AuthContext.Provider>
   );

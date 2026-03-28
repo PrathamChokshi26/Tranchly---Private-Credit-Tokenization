@@ -7,6 +7,8 @@ import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VerifyIdentity from './pages/VerifyIdentity';
+import VerifyRejected from './pages/VerifyRejected';
 
 // Borrower
 import BorrowerDashboard from './pages/borrower/BorrowerDashboard';
@@ -26,13 +28,27 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import ApplicationsQueue from './pages/admin/ApplicationsQueue';
 import Analytics from './pages/admin/Analytics';
 import AllLoans from './pages/admin/AllLoans';
+import AdminUsers from './pages/admin/AdminUsers';
 
-function ProtectedRoute({ children, roles }) {
+function ProtectedRoute({ children, roles, requireKyc = true }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin w-10 h-10 border-3 border-purple-500 border-t-transparent rounded-full" /></div>;
   if (!user) return <Navigate to="/login" />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/" />;
+
+  // KYC gate: admins bypass, others must be verified
+  if (requireKyc && user.role !== 'admin') {
+    const kycStatus = user.kyc_status || 'pending';
+    if (kycStatus === 'rejected') return <Navigate to="/verify-rejected" />;
+    if (kycStatus !== 'verified') return <Navigate to="/verify-identity" />;
+  }
+
   return <Layout>{children}</Layout>;
+}
+
+function getDashboardPath(user) {
+  if (!user) return '/';
+  return user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower';
 }
 
 function AppRoutes() {
@@ -43,9 +59,13 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public */}
-      <Route path="/" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower'} /> : <Landing />} />
-      <Route path="/login" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower'} /> : <Login />} />
-      <Route path="/signup" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower'} /> : <Signup />} />
+      <Route path="/" element={user ? <Navigate to={getDashboardPath(user)} /> : <Landing />} />
+      <Route path="/login" element={user ? <Navigate to={getDashboardPath(user)} /> : <Login />} />
+      <Route path="/signup" element={user ? <Navigate to={getDashboardPath(user)} /> : <Signup />} />
+
+      {/* KYC */}
+      <Route path="/verify-identity" element={user ? <VerifyIdentity /> : <Navigate to="/login" />} />
+      <Route path="/verify-rejected" element={user ? <VerifyRejected /> : <Navigate to="/login" />} />
 
       {/* Borrower */}
       <Route path="/borrower" element={<ProtectedRoute roles={['borrower']}><BorrowerDashboard /></ProtectedRoute>} />
@@ -65,6 +85,7 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
       <Route path="/admin/applications" element={<ProtectedRoute roles={['admin']}><ApplicationsQueue /></ProtectedRoute>} />
       <Route path="/admin/loans" element={<ProtectedRoute roles={['admin']}><AllLoans /></ProtectedRoute>} />
+      <Route path="/admin/users" element={<ProtectedRoute roles={['admin']}><AdminUsers /></ProtectedRoute>} />
       <Route path="/admin/analytics" element={<ProtectedRoute roles={['admin']}><Analytics /></ProtectedRoute>} />
 
       {/* Fallback */}
