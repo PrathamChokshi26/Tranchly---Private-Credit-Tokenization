@@ -18,8 +18,8 @@ export default function Landing() {
       <nav className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-teal-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
-            <span className="text-xl font-bold text-gray-900">Slice</span>
+            <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-teal-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">T</div>
+            <span className="text-xl font-bold text-gray-900">Tranchly</span>
           </div>
           <div className="flex items-center gap-4">
             <Link to="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900">Log in</Link>
@@ -45,7 +45,7 @@ export default function Landing() {
               Invest in <span className="bg-gradient-to-r from-purple-600 to-teal-500 bg-clip-text text-transparent">real business loans</span> starting at $50
             </h1>
             <p className="mt-6 text-xl text-gray-600 leading-relaxed">
-              Slice connects SME borrowers with retail investors through blockchain-backed loan tokens. 
+              Tranchly connects SME borrowers with retail investors through blockchain-backed loan tokens. 
               Earn yield from real business repayments. No middlemen, no minimums.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
@@ -81,7 +81,7 @@ export default function Landing() {
       <section className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">How Slice Works</h2>
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">How Tranchly Works</h2>
             <p className="mt-4 text-lg text-gray-500">Simple for borrowers. Powerful for investors.</p>
           </div>
 
@@ -94,7 +94,7 @@ export default function Landing() {
               <div className="space-y-6">
                 {[
                   { step: '01', title: 'Browse Loan Tokens', desc: 'Explore vetted SME loans graded A through C with transparent credit scores and projected yields.' },
-                  { step: '02', title: 'Invest from $50', desc: 'Buy fractional loan tokens. Each token represents a slice of a real business loan earning interest.' },
+                  { step: '02', title: 'Invest from $50', desc: 'Buy fractional loan tokens. Each token represents a tranche of a real business loan earning interest.' },
                   { step: '03', title: 'Earn Yield Automatically', desc: 'As borrowers repay, yield is distributed to your wallet in USDC. Track everything in real-time.' },
                 ].map((item, i) => (
                   <div key={i} className="flex gap-4">
@@ -167,7 +167,7 @@ export default function Landing() {
       {/* CTA */}
       <section className="py-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Ready to slice into private credit?</h2>
+          <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Ready to tranche into private credit?</h2>
           <p className="mt-4 text-lg text-gray-500">Join the future of lending. Whether you're growing a business or growing your portfolio.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Link to="/signup" className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-8 py-3.5 rounded-xl text-base font-semibold hover:from-purple-700 hover:to-purple-800 shadow-lg shadow-purple-200">
@@ -181,11 +181,12 @@ export default function Landing() {
       <footer className="bg-[#0f172a] text-slate-400 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 mb-6">
-            <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-teal-400 rounded-lg flex items-center justify-center text-white font-bold text-xs">S</div>
-            <span className="text-lg font-bold text-white">Slice</span>
+            <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-teal-400 rounded-lg flex items-center justify-center text-white font-bold text-xs">T</div>
+            <span className="text-lg font-bold text-white">Tranchly</span>
           </div>
           <p className="text-sm">Private credit, tokenized. Connecting SME borrowers with retail investors through blockchain-backed loan tokens.</p>
-          <div className="mt-6 pt-6 border-t border-slate-800 text-xs">&copy; {new Date().getFullYear()} Slice. All rights reserved. Mock blockchain — for demonstration purposes.</div>
+          <p className="text-xs mt-1">hello@tranchly.finance</p>
+          <div className="mt-6 pt-6 border-t border-slate-800 text-xs">&copy; {new Date().getFullYear()} Tranchly. All rights reserved. Mock blockchain — for demonstration purposes.</div>
         </div>
       </footer>
     </div>

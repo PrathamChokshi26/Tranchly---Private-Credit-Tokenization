@@ -7,7 +7,7 @@ import os
 import uuid
 
 # JWT Configuration
-SECRET_KEY = os.environ.get('JWT_SECRET', 'slice-platform-secret-key-2025-super-secure')
+SECRET_KEY = os.environ.get('JWT_SECRET', 'tranchly-platform-secret-key-2025-super-secure')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 

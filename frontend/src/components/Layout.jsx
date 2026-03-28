@@ -45,8 +45,8 @@ export default function Layout({ children }) {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#0f172a] text-white transform transition-transform duration-200 lg:translate-x-0 lg:static lg:inset-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-700">
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-teal-400 rounded-lg flex items-center justify-center font-bold text-sm">S</div>
-          <span className="text-xl font-bold">Slice</span>
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-teal-400 rounded-lg flex items-center justify-center font-bold text-sm">T</div>
+          <span className="text-xl font-bold">Tranchly</span>
         </div>
 
         <nav className="mt-6 px-3 space-y-1">

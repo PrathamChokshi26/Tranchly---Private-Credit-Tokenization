@@ -1,4 +1,4 @@
-"""Mock Blockchain Layer for Slice Platform
+"""Mock Blockchain Layer for Tranchly Platform
 
 Simulates blockchain operations with database records:
 - Mint loan tokens
@@ -32,7 +32,7 @@ def create_mint_transaction(loan_id: str, token_count: int, token_price: float) 
         "tx_hash": generate_tx_hash(),
         "type": "mint",
         "from_address": "0x0000000000000000000000000000000000000000",
-        "to_address": "0xSlicePlatformVault",
+        "to_address": "0xTranchlyPlatformVault",
         "amount": token_count * token_price,
         "block_number": generate_block_number(),
         "network": "polygon",
@@ -52,7 +52,7 @@ def create_buy_transaction(investor_address: str, loan_id: str, token_count: int
         "tx_hash": generate_tx_hash(),
         "type": "buy",
         "from_address": investor_address,
-        "to_address": "0xSlicePlatformVault",
+        "to_address": "0xTranchlyPlatformVault",
         "amount": amount,
         "block_number": generate_block_number(),
         "network": "polygon",

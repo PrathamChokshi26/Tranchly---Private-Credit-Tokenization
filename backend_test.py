@@ -3,7 +3,7 @@ import sys
 import json
 from datetime import datetime
 
-class SlicePlatformAPITester:
+class TranchlyPlatformAPITester:
     def __init__(self, base_url="https://loan-marketplace-12.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.tests_run = 0
@@ -337,10 +337,10 @@ class SlicePlatformAPITester:
                            auth_token=self.tokens['admin'])
 
 def main():
-    print("🚀 Starting Slice Platform API Tests")
+    print("🚀 Starting Tranchly Platform API Tests")
     print("=" * 60)
     
-    tester = SlicePlatformAPITester()
+    tester = TranchlyPlatformAPITester()
     
     # Test sequence as specified in the review request
     test_methods = [

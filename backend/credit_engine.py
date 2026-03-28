@@ -1,4 +1,4 @@
-"""Credit Scoring Engine for Slice Platform
+"""Credit Scoring Engine for Tranchly Platform
 
 Calculates composite credit score from weighted signals:
 - Cash flow signals (30%): avg monthly revenue, revenue trend, cash buffer days
