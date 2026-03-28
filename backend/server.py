@@ -21,6 +21,14 @@ from mock_blockchain import (
     create_mint_transaction, create_buy_transaction,
     create_yield_transaction, create_resale_transaction
 )
+from services.email_service import (
+    send_loan_application_received,
+    send_credit_score_ready,
+    send_loan_approved,
+    send_repayment_due_reminder,
+    send_investment_confirmed,
+    send_yield_distributed,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -402,6 +410,31 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
     await db.credit_scores.insert_one(credit_score_record)
     await db.loans.insert_one(loan)
     
+    # ── EMAIL 1: Loan Application Received ──
+    borrower_user = await db.users.find_one({"id": user["sub"]})
+    borrower_email = borrower_user.get("email", "") if borrower_user else ""
+    borrower_first = user.get("name", "").split()[0] if user.get("name") else "there"
+    send_loan_application_received(
+        to_email=borrower_email,
+        first_name=borrower_first,
+        loan_amount=req.loan_amount_requested,
+        business_name=req.business_name,
+        application_id=loan["id"],
+        user_id=user["sub"],
+    )
+
+    # ── EMAIL 2: Credit Score Ready ──
+    send_credit_score_ready(
+        to_email=borrower_email,
+        first_name=borrower_first,
+        business_name=req.business_name,
+        grade=score_result["grade"],
+        composite_score=score_result["composite_score"],
+        suggested_apr=score_result["suggested_apr"],
+        max_loan_amount=score_result["max_loan_amount"],
+        user_id=user["sub"],
+    )
+
     return {
         "success": True,
         "loan_id": loan["id"],
@@ -597,6 +630,20 @@ async def invest_in_loan(req: InvestRequest, request: Request):
     tx = create_buy_transaction(investor["wallet_address"], req.loan_id, req.token_count, total_cost)
     await db.transactions.insert_one(tx)
     
+    # ── EMAIL 5: Investment Confirmed ──
+    projected_yield = total_cost * loan["interest_rate"] / 100 * loan["term_months"] / 12
+    send_investment_confirmed(
+        to_email=investor.get("email", ""),
+        first_name=investor.get("full_name", "").split()[0] if investor.get("full_name") else "there",
+        token_count=req.token_count,
+        amount_invested=total_cost,
+        grade=loan["grade"],
+        apr=loan["interest_rate"],
+        projected_yield=round(projected_yield, 2),
+        tx_hash=tx["tx_hash"],
+        user_id=user["sub"],
+    )
+
     return {
         "success": True,
         "investment_id": investment["id"],
@@ -868,6 +915,23 @@ async def approve_loan(loan_id: str, req: LoanActionRequest, request: Request):
         }
         await db.repayments.insert_one(repayment)
     
+    # ── EMAIL 3: Loan Approved & Tokens Minted ──
+    borrower = await db.users.find_one({"id": loan["borrower_id"]})
+    if borrower:
+        first_due = (now + timedelta(days=30)).strftime("%B %d, %Y")
+        send_loan_approved(
+            to_email=borrower.get("email", ""),
+            first_name=borrower.get("full_name", "").split()[0] if borrower.get("full_name") else "there",
+            loan_amount=loan["loan_amount_approved"],
+            apr=loan["interest_rate"],
+            loan_id=loan_id,
+            token_address=generate_wallet_address(),
+            tx_hash=tx["tx_hash"],
+            first_payment_date=first_due,
+            monthly_payment=round(monthly_payment, 2),
+            user_id=loan["borrower_id"],
+        )
+
     return {
         "success": True,
         "message": f"Loan approved with {term} month term",
@@ -977,6 +1041,23 @@ async def simulate_repayment(req: SimulateRepaymentRequest, request: Request):
         )
         await db.transactions.insert_one(tx)
         
+        # ── EMAIL 6: Yield Distributed ──
+        if investor:
+            total_inv_yield = 0
+            inv_records = await db.investments.find({"investor_id": owner_id}).to_list(1000)
+            for ir in inv_records:
+                total_inv_yield += ir.get("yield_earned", 0)
+            send_yield_distributed(
+                to_email=investor.get("email", ""),
+                first_name=investor.get("full_name", "").split()[0] if investor.get("full_name") else "there",
+                yield_amount=round(owner_yield, 2),
+                loan_id=req.loan_id,
+                grade=loan.get("grade", ""),
+                tx_hash=yield_payment["tx_hash"],
+                total_yield_earned=round(total_inv_yield, 2),
+                user_id=owner_id,
+            )
+
         distributions.append({
             "investor_id": owner_id,
             "tokens_held": len(owned_tokens),
@@ -1069,6 +1150,62 @@ async def health():
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
+# ============= BACKGROUND JOB: REPAYMENT REMINDERS =============
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+scheduler = AsyncIOScheduler()
+
+async def check_repayment_reminders():
+    """Daily job: send reminders for payments due in 3 days."""
+    try:
+        now = datetime.now(timezone.utc)
+        target = now + timedelta(days=3)
+        window_start = target.replace(hour=0, minute=0, second=0, microsecond=0)
+        window_end = window_start + timedelta(days=1)
+
+        upcoming = await db.repayments.find({
+            "status": "scheduled",
+            "due_date": {"$gte": window_start.isoformat(), "$lt": window_end.isoformat()},
+        }).to_list(1000)
+
+        logger.info(f"[REMINDER-JOB] Found {len(upcoming)} repayments due in 3 days")
+
+        for rep in upcoming:
+            loan = await db.loans.find_one({"id": rep["loan_id"]})
+            if not loan:
+                continue
+            borrower = await db.users.find_one({"id": loan["borrower_id"]})
+            if not borrower:
+                continue
+
+            send_repayment_due_reminder(
+                to_email=borrower.get("email", ""),
+                first_name=borrower.get("full_name", "").split()[0] if borrower.get("full_name") else "there",
+                payment_amount=rep["amount"],
+                due_date=datetime.fromisoformat(rep["due_date"]).strftime("%B %d, %Y"),
+                loan_id=rep["loan_id"],
+                user_id=loan["borrower_id"],
+            )
+
+        logger.info(f"[REMINDER-JOB] Processed {len(upcoming)} reminders")
+    except Exception as e:
+        logger.error(f"[REMINDER-JOB] Error: {e}")
+
+# Schedule at 09:00 UTC daily
+scheduler.add_job(check_repayment_reminders, CronTrigger(hour=9, minute=0, timezone="UTC"),
+                  id="repayment_reminders", replace_existing=True)
+
+# Also expose a manual trigger for testing
+@api_router.post("/admin/trigger-reminders")
+async def trigger_reminders(request: Request):
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await check_repayment_reminders()
+    return {"success": True, "message": "Repayment reminder job executed"}
+
 # ============= APP SETUP =============
 
 app.include_router(api_router)
@@ -1081,6 +1218,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_scheduler():
+    scheduler.start()
+    logger.info("[SCHEDULER] APScheduler started — repayment reminders daily at 09:00 UTC")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    scheduler.shutdown()
     client.close()

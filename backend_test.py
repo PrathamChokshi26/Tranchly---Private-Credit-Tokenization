@@ -1,528 +1,480 @@
 #!/usr/bin/env python3
 """
-KYC Integration Testing for Tranchly Platform
-Tests all KYC-related endpoints and flows
+Tranchly Backend Email Integration Test
+Tests the complete email flow with Resend integration (graceful skip mode)
 """
 
 import requests
 import json
-import sys
-from typing import Dict, Any, Optional
+import time
+import os
+from datetime import datetime
+import random
 
-# Backend URL from environment
+# Get backend URL from frontend .env
 BACKEND_URL = "https://loan-marketplace-12.preview.emergentagent.com/api"
 
-class KYCTester:
+class TranchlyEmailTester:
     def __init__(self):
-        self.session = requests.Session()
-        self.tokens = {}  # Store tokens for different users
-        self.users = {}   # Store user data
+        self.base_url = BACKEND_URL
+        self.borrower_token = None
+        self.admin_token = None
+        self.investor_token = None
+        self.loan_id = None
+        self.test_results = []
+        # Generate unique email suffix to avoid conflicts
+        self.email_suffix = f"{int(time.time())}{random.randint(100, 999)}"
         
-    def log(self, message: str, level: str = "INFO"):
-        """Log test messages"""
-        print(f"[{level}] {message}")
+    def log_result(self, test_name, success, details=""):
+        """Log test result"""
+        status = "✅ PASS" if success else "❌ FAIL"
+        self.test_results.append(f"{status} {test_name}: {details}")
+        print(f"{status} {test_name}: {details}")
         
-    def make_request(self, method: str, endpoint: str, data: Optional[Dict] = None, 
-                    token: Optional[str] = None, expect_status: int = 200) -> Dict[Any, Any]:
+    def make_request(self, method, endpoint, data=None, token=None, expect_success=True):
         """Make HTTP request with error handling"""
-        url = f"{BACKEND_URL}{endpoint}"
+        url = f"{self.base_url}{endpoint}"
         headers = {"Content-Type": "application/json"}
-        
         if token:
             headers["Authorization"] = f"Bearer {token}"
             
         try:
-            if method.upper() == "GET":
-                response = self.session.get(url, headers=headers)
-            elif method.upper() == "POST":
-                response = self.session.post(url, headers=headers, json=data)
+            if method == "GET":
+                response = requests.get(url, headers=headers, timeout=30)
+            elif method == "POST":
+                response = requests.post(url, headers=headers, json=data, timeout=30)
+            elif method == "PUT":
+                response = requests.put(url, headers=headers, json=data, timeout=30)
             else:
                 raise ValueError(f"Unsupported method: {method}")
                 
-            self.log(f"{method} {endpoint} -> {response.status_code}")
+            if expect_success and response.status_code >= 400:
+                return None, f"HTTP {response.status_code}: {response.text}"
             
-            if response.status_code != expect_status:
-                self.log(f"Expected {expect_status}, got {response.status_code}: {response.text}", "ERROR")
-                return {"error": f"Status {response.status_code}", "text": response.text}
-                
-            return response.json() if response.content else {}
+            return response.json() if response.content else {}, None
             
-        except Exception as e:
-            self.log(f"Request failed: {str(e)}", "ERROR")
-            return {"error": str(e)}
-    
-    def test_health_check(self) -> bool:
+        except requests.exceptions.RequestException as e:
+            return None, f"Request failed: {str(e)}"
+        except json.JSONDecodeError as e:
+            return None, f"JSON decode error: {str(e)}"
+            
+    def test_health_check(self):
         """Test 1: Health Check"""
-        self.log("=== TEST 1: Health Check ===")
-        
-        result = self.make_request("GET", "/health")
-        
-        if "error" in result:
-            self.log("❌ Health check failed", "ERROR")
+        result, error = self.make_request("GET", "/health")
+        if error:
+            self.log_result("Health Check", False, error)
             return False
             
-        if result.get("status") == "healthy" and result.get("database") == "connected":
-            self.log("✅ Health check passed - Backend is running and database connected")
+        if result.get("status") == "healthy":
+            self.log_result("Health Check", True, "Backend is running")
             return True
         else:
-            self.log(f"❌ Health check failed - Unexpected response: {result}", "ERROR")
+            self.log_result("Health Check", False, f"Unhealthy: {result}")
             return False
-    
-    def test_signup_borrower(self) -> bool:
-        """Test 2: Signup new borrower"""
-        self.log("=== TEST 2: Signup Borrower ===")
-        
-        # Use timestamp to make email unique
-        import time
-        timestamp = str(int(time.time()))
-        email = f"kyc_borrower_{timestamp}@test.com"
-        
-        user_data = {
-            "email": email,
+            
+    def test_borrower_signup(self):
+        """Test 2: Signup borrower"""
+        data = {
+            "email": f"email_borrower_{self.email_suffix}@test.com",
             "password": "test123",
-            "full_name": "KYC Test User",
+            "full_name": "Email Test Borrower",
             "role": "borrower"
         }
         
-        result = self.make_request("POST", "/auth/signup", user_data, expect_status=200)
-        
-        if "error" in result:
-            # If user exists, try to login instead
-            if "already registered" in result.get("text", "").lower():
-                self.log("User already exists, trying login instead...")
-                login_data = {"email": email, "password": "test123"}
-                result = self.make_request("POST", "/auth/login", login_data)
-                if "error" in result:
-                    self.log("❌ Borrower login failed", "ERROR")
-                    return False
-            else:
-                self.log("❌ Borrower signup failed", "ERROR")
-                return False
-            
-        # Verify response structure (API returns "token" not "access_token")
-        required_fields = ["token", "user"]
-        for field in required_fields:
-            if field not in result:
-                self.log(f"❌ Missing field in response: {field}", "ERROR")
-                return False
-        
-        user = result["user"]
-        if user.get("kyc_status") != "pending":
-            self.log(f"❌ Expected kyc_status='pending', got '{user.get('kyc_status')}'", "ERROR")
+        result, error = self.make_request("POST", "/auth/signup", data)
+        if error:
+            self.log_result("Borrower Signup", False, error)
             return False
             
-        if user.get("identity_token") is not None:
-            self.log(f"❌ Expected identity_token=null, got '{user.get('identity_token')}'", "ERROR")
+        if result.get("token") and result.get("user"):
+            self.borrower_token = result["token"]
+            self.log_result("Borrower Signup", True, f"Token received, user ID: {result['user']['id']}")
+            return True
+        else:
+            self.log_result("Borrower Signup", False, f"Missing token or user: {result}")
             return False
             
-        # Store token and user data
-        self.tokens["borrower"] = result["token"]
-        self.users["borrower"] = user
+    def test_borrower_kyc_skip(self):
+        """Test 3: Skip KYC for borrower"""
+        result, error = self.make_request("POST", "/kyc/skip", {}, self.borrower_token)
+        if error:
+            self.log_result("Borrower KYC Skip", False, error)
+            return False
+            
+        if result.get("success") and result.get("identity_token"):
+            self.log_result("Borrower KYC Skip", True, f"Identity token: {result['identity_token'][:20]}...")
+            return True
+        else:
+            self.log_result("Borrower KYC Skip", False, f"KYC skip failed: {result}")
+            return False
+            
+    def test_loan_application(self):
+        """Test 4: Apply for loan (triggers Email 1 + Email 2)"""
+        data = {
+            "business_name": "Email Test Corp",
+            "industry": "technology",
+            "years_operating": 4,
+            "monthly_revenue": 30000,
+            "loan_amount_requested": 100000,
+            "loan_purpose": "Testing email triggers",
+            "bank_balance": 60000,
+            "monthly_expenses": 20000,
+            "bureau_score": 720
+        }
         
-        self.log("✅ Borrower signup successful - kyc_status='pending', identity_token=null")
-        return True
-    
-    def test_signup_admin(self) -> bool:
-        """Test 3: Signup new admin"""
-        self.log("=== TEST 3: Signup Admin ===")
-        
-        # Use timestamp to make email unique
-        import time
-        timestamp = str(int(time.time()))
-        email = f"kyc_admin_{timestamp}@test.com"
-        
-        user_data = {
-            "email": email,
+        result, error = self.make_request("POST", "/loans/apply", data, self.borrower_token)
+        if error:
+            self.log_result("Loan Application (Email 1+2)", False, error)
+            return False
+            
+        if result.get("success") and result.get("loan_id") and result.get("credit_score"):
+            self.loan_id = result["loan_id"]
+            credit_score = result["credit_score"]
+            self.log_result("Loan Application (Email 1+2)", True, 
+                          f"Loan ID: {self.loan_id}, Grade: {credit_score.get('grade')}, Score: {credit_score.get('composite_score')}")
+            return True
+        else:
+            self.log_result("Loan Application (Email 1+2)", False, f"Application failed: {result}")
+            return False
+            
+    def test_admin_signup(self):
+        """Test 5: Signup admin"""
+        data = {
+            "email": f"email_admin_{self.email_suffix}@test.com",
             "password": "test123",
-            "full_name": "KYC Admin",
+            "full_name": "Email Admin",
             "role": "admin"
         }
         
-        result = self.make_request("POST", "/auth/signup", user_data, expect_status=200)
-        
-        if "error" in result:
-            # If user exists, try to login instead
-            if "already registered" in result.get("text", "").lower():
-                self.log("User already exists, trying login instead...")
-                login_data = {"email": email, "password": "test123"}
-                result = self.make_request("POST", "/auth/login", login_data)
-                if "error" in result:
-                    self.log("❌ Admin login failed", "ERROR")
-                    return False
-            else:
-                self.log("❌ Admin signup failed", "ERROR")
-                return False
-            
-        user = result["user"]
-        if user.get("kyc_status") != "verified":
-            self.log(f"❌ Expected kyc_status='verified' for admin, got '{user.get('kyc_status')}'", "ERROR")
+        result, error = self.make_request("POST", "/auth/signup", data)
+        if error:
+            self.log_result("Admin Signup", False, error)
             return False
             
-        # Store token and user data
-        self.tokens["admin"] = result["token"]
-        self.users["admin"] = user
+        if result.get("token") and result.get("user"):
+            self.admin_token = result["token"]
+            self.log_result("Admin Signup", True, f"Admin token received, user ID: {result['user']['id']}")
+            return True
+        else:
+            self.log_result("Admin Signup", False, f"Missing token or user: {result}")
+            return False
+            
+    def test_loan_approval(self):
+        """Test 6: Approve loan (triggers Email 3)"""
+        if not self.loan_id:
+            self.log_result("Loan Approval (Email 3)", False, "No loan ID available")
+            return False
+            
+        data = {"term_months": 12}
         
-        self.log("✅ Admin signup successful - kyc_status='verified' (auto-verified)")
-        return True
-    
-    def test_signup_investor(self) -> bool:
-        """Test 4: Signup new investor"""
-        self.log("=== TEST 4: Signup Investor ===")
-        
-        # Use timestamp to make email unique
-        import time
-        timestamp = str(int(time.time()))
-        email = f"kyc_investor_{timestamp}@test.com"
-        
-        user_data = {
-            "email": email,
+        result, error = self.make_request("POST", f"/admin/loans/{self.loan_id}/approve", data, self.admin_token)
+        if error:
+            self.log_result("Loan Approval (Email 3)", False, error)
+            return False
+            
+        if result.get("success") and result.get("mint_tx_hash") and result.get("tokens_minted"):
+            self.log_result("Loan Approval (Email 3)", True, 
+                          f"Tokens minted: {result['tokens_minted']}, TX: {result['mint_tx_hash'][:20]}...")
+            return True
+        else:
+            self.log_result("Loan Approval (Email 3)", False, f"Approval failed: {result}")
+            return False
+            
+    def test_investor_signup(self):
+        """Test 7: Signup investor"""
+        data = {
+            "email": f"email_investor_{self.email_suffix}@test.com",
             "password": "test123",
-            "full_name": "KYC Investor",
+            "full_name": "Email Investor",
             "role": "investor"
         }
         
-        result = self.make_request("POST", "/auth/signup", user_data, expect_status=200)
-        
-        if "error" in result:
-            # If user exists, try to login instead
-            if "already registered" in result.get("text", "").lower():
-                self.log("User already exists, trying login instead...")
-                login_data = {"email": email, "password": "test123"}
-                result = self.make_request("POST", "/auth/login", login_data)
-                if "error" in result:
-                    self.log("❌ Investor login failed", "ERROR")
-                    return False
-            else:
-                self.log("❌ Investor signup failed", "ERROR")
-                return False
-            
-        user = result["user"]
-        if user.get("kyc_status") != "pending":
-            self.log(f"❌ Expected kyc_status='pending', got '{user.get('kyc_status')}'", "ERROR")
+        result, error = self.make_request("POST", "/auth/signup", data)
+        if error:
+            self.log_result("Investor Signup", False, error)
             return False
             
-        # Store token and user data
-        self.tokens["investor"] = result["token"]
-        self.users["investor"] = user
-        
-        self.log("✅ Investor signup successful - kyc_status='pending'")
-        return True
-    
-    def test_kyc_status_borrower(self) -> bool:
-        """Test 5: Get KYC Status (borrower)"""
-        self.log("=== TEST 5: Get KYC Status (Borrower) ===")
-        
-        if "borrower" not in self.tokens:
-            self.log("❌ No borrower token available", "ERROR")
+        if result.get("token") and result.get("user"):
+            self.investor_token = result["token"]
+            self.log_result("Investor Signup", True, f"Investor token received, user ID: {result['user']['id']}")
+            return True
+        else:
+            self.log_result("Investor Signup", False, f"Missing token or user: {result}")
             return False
             
-        result = self.make_request("GET", "/kyc/status", token=self.tokens["borrower"])
-        
-        if "error" in result:
-            self.log("❌ KYC status check failed", "ERROR")
+    def test_investor_kyc_skip(self):
+        """Test 8: Skip KYC for investor"""
+        result, error = self.make_request("POST", "/kyc/skip", {}, self.investor_token)
+        if error:
+            self.log_result("Investor KYC Skip", False, error)
             return False
             
-        expected_status = {"kyc_status": "pending", "identity_token": None}
-        
-        if result.get("kyc_status") != "pending":
-            self.log(f"❌ Expected kyc_status='pending', got '{result.get('kyc_status')}'", "ERROR")
+        if result.get("success") and result.get("identity_token"):
+            self.log_result("Investor KYC Skip", True, f"Identity token: {result['identity_token'][:20]}...")
+            return True
+        else:
+            self.log_result("Investor KYC Skip", False, f"KYC skip failed: {result}")
             return False
             
-        if result.get("identity_token") is not None:
-            self.log(f"❌ Expected identity_token=null, got '{result.get('identity_token')}'", "ERROR")
+    def test_investment(self):
+        """Test 9: Invest in loan (triggers Email 5)"""
+        if not self.loan_id:
+            self.log_result("Investment (Email 5)", False, "No loan ID available")
             return False
             
-        self.log("✅ KYC status check passed - status='pending', identity_token=null")
-        return True
-    
-    def test_kyc_skip_sandbox(self) -> bool:
-        """Test 6: KYC Skip (sandbox)"""
-        self.log("=== TEST 6: KYC Skip (Sandbox) ===")
-        
-        if "borrower" not in self.tokens:
-            self.log("❌ No borrower token available", "ERROR")
-            return False
+        # Check investor balance first
+        result, error = self.make_request("GET", "/auth/me", token=self.investor_token)
+        if result and result.get("user"):
+            balance = result["user"].get("usdc_balance", 0)
+            max_tokens = int(balance / 50)  # Each token costs $50
+            tokens_to_buy = min(max_tokens, 100)  # Buy up to 100 tokens or what we can afford
+        else:
+            tokens_to_buy = 5  # Fallback
             
-        result = self.make_request("POST", "/kyc/skip", token=self.tokens["borrower"])
-        
-        if "error" in result:
-            self.log("❌ KYC skip failed", "ERROR")
-            return False
-            
-        # Verify response structure
-        if not result.get("success"):
-            self.log(f"❌ Expected success=true, got '{result.get('success')}'", "ERROR")
-            return False
-            
-        if "redirect" not in result:
-            self.log("❌ Missing redirect path in response", "ERROR")
-            return False
-            
-        identity_token = result.get("identity_token")
-        if not identity_token or not identity_token.startswith("0x"):
-            self.log(f"❌ Expected identity_token starting with '0x', got '{identity_token}'", "ERROR")
-            return False
-            
-        self.log(f"✅ KYC skip successful - identity_token: {identity_token[:10]}...")
-        return True
-    
-    def test_kyc_status_after_skip(self) -> bool:
-        """Test 7: Get KYC Status after skip"""
-        self.log("=== TEST 7: Get KYC Status After Skip ===")
-        
-        if "borrower" not in self.tokens:
-            self.log("❌ No borrower token available", "ERROR")
-            return False
-            
-        result = self.make_request("GET", "/kyc/status", token=self.tokens["borrower"])
-        
-        if "error" in result:
-            self.log("❌ KYC status check failed", "ERROR")
-            return False
-            
-        if result.get("kyc_status") != "verified":
-            self.log(f"❌ Expected kyc_status='verified', got '{result.get('kyc_status')}'", "ERROR")
-            return False
-            
-        identity_token = result.get("identity_token")
-        if not identity_token or not identity_token.startswith("0x"):
-            self.log(f"❌ Expected identity_token starting with '0x', got '{identity_token}'", "ERROR")
-            return False
-            
-        self.log("✅ KYC status after skip - status='verified', identity_token present")
-        return True
-    
-    def test_auth_me_after_skip(self) -> bool:
-        """Test 8: Get Auth Me after skip"""
-        self.log("=== TEST 8: Get Auth Me After Skip ===")
-        
-        if "borrower" not in self.tokens:
-            self.log("❌ No borrower token available", "ERROR")
-            return False
-            
-        result = self.make_request("GET", "/auth/me", token=self.tokens["borrower"])
-        
-        if "error" in result:
-            self.log("❌ Auth me check failed", "ERROR")
-            return False
-            
-        # The response has a nested user object
-        user = result.get("user", {})
-        if user.get("kyc_status") != "verified":
-            self.log(f"❌ Expected kyc_status='verified', got '{user.get('kyc_status')}'", "ERROR")
-            return False
-            
-        identity_token = user.get("identity_token")
-        if not identity_token or not identity_token.startswith("0x"):
-            self.log(f"❌ Expected identity_token starting with '0x', got '{identity_token}'", "ERROR")
-            return False
-            
-        self.log("✅ Auth me after skip - user object contains kyc_status='verified' and identity_token")
-        return True
-    
-    def test_kyc_complete_investor(self) -> bool:
-        """Test 9: KYC Complete (investor with sandbox fallback)"""
-        self.log("=== TEST 9: KYC Complete (Investor) ===")
-        
-        if "investor" not in self.tokens:
-            self.log("❌ No investor token available", "ERROR")
-            return False
-            
-        complete_data = {"inquiry_id": "inq_test_sandbox_123"}
-        result = self.make_request("POST", "/kyc/complete", complete_data, token=self.tokens["investor"])
-        
-        if "error" in result:
-            self.log("❌ KYC complete failed", "ERROR")
-            return False
-            
-        if not result.get("success"):
-            self.log(f"❌ Expected success=true, got '{result.get('success')}'", "ERROR")
-            return False
-            
-        identity_token = result.get("identity_token")
-        if not identity_token or not identity_token.startswith("0x"):
-            self.log(f"❌ Expected identity_token starting with '0x', got '{identity_token}'", "ERROR")
-            return False
-            
-        self.log("✅ KYC complete successful - sandbox fallback worked, identity_token returned")
-        return True
-    
-    def test_kyc_webhook(self) -> bool:
-        """Test 10: KYC Webhook"""
-        self.log("=== TEST 10: KYC Webhook ===")
-        
-        webhook_data = {
-            "data": {
-                "attributes": {
-                    "name": "inquiry.completed",
-                    "payload": {
-                        "data": {
-                            "id": "inq_test_webhook_456"
-                        }
-                    }
-                }
-            }
+        data = {
+            "loan_id": self.loan_id,
+            "token_count": tokens_to_buy
         }
         
-        result = self.make_request("POST", "/kyc/webhook", webhook_data)
+        result, error = self.make_request("POST", "/marketplace/invest", data, self.investor_token)
+        if error:
+            self.log_result("Investment (Email 5)", False, error)
+            return False
+            
+        if result.get("success") and result.get("tx_hash") and result.get("tokens_purchased"):
+            self.log_result("Investment (Email 5)", True, 
+                          f"Tokens purchased: {result['tokens_purchased']}, TX: {result['tx_hash'][:20]}...")
+            return True
+        else:
+            self.log_result("Investment (Email 5)", False, f"Investment failed: {result}")
+            return False
+            
+    def test_fund_loan_completely(self):
+        """Test 9.5: Fund the loan completely to enable repayment simulation"""
+        if not self.loan_id:
+            self.log_result("Fund Loan Completely", False, "No loan ID available")
+            return False
+            
+        # Check loan status
+        result, error = self.make_request("GET", f"/loans/{self.loan_id}", token=self.admin_token)
+        if not result or not result.get("loan"):
+            self.log_result("Fund Loan Completely", False, "Could not get loan details")
+            return False
+            
+        loan = result["loan"]
+        remaining_tokens = loan["total_tokens"] - loan["tokens_sold"]
         
-        if "error" in result:
-            self.log("❌ KYC webhook failed", "ERROR")
-            return False
+        if remaining_tokens <= 0:
+            self.log_result("Fund Loan Completely", True, "Loan already fully funded")
+            return True
             
-        if not result.get("received"):
-            self.log(f"❌ Expected received=true, got '{result.get('received')}'", "ERROR")
-            return False
-            
-        self.log("✅ KYC webhook successful - received=true")
-        return True
-    
-    def test_admin_users_list(self) -> bool:
-        """Test 11: Admin Users List"""
-        self.log("=== TEST 11: Admin Users List ===")
+        # Create another investor to fund the remaining tokens
+        investor2_data = {
+            "email": f"email_investor2_{self.email_suffix}@test.com",
+            "password": "test123",
+            "full_name": "Email Investor 2",
+            "role": "investor"
+        }
         
-        if "admin" not in self.tokens:
-            self.log("❌ No admin token available", "ERROR")
+        result, error = self.make_request("POST", "/auth/signup", investor2_data)
+        if error:
+            self.log_result("Fund Loan Completely", False, f"Failed to create investor2: {error}")
             return False
             
-        result = self.make_request("GET", "/admin/users", token=self.tokens["admin"])
-        
-        if "error" in result:
-            self.log("❌ Admin users list failed", "ERROR")
+        investor2_token = result.get("token")
+        if not investor2_token:
+            self.log_result("Fund Loan Completely", False, "No token for investor2")
             return False
             
-        users = result.get("users", [])
-        if not isinstance(users, list):
-            self.log(f"❌ Expected users list, got '{type(users)}'", "ERROR")
+        # Skip KYC for investor2
+        result, error = self.make_request("POST", "/kyc/skip", {}, investor2_token)
+        if error:
+            self.log_result("Fund Loan Completely", False, f"Failed KYC skip for investor2: {error}")
             return False
             
-        # Check that users have kyc_status and identity_token fields
-        found_verified_users = 0
-        found_admin = False
-        users_with_kyc = 0
-        
-        for user in users:
-            # Check if this is our test admin
-            if user.get("email", "").startswith("kyc_admin_") and user.get("role") == "admin":
-                found_admin = True
-                if user.get("kyc_status") != "verified":
-                    self.log(f"❌ Admin should have kyc_status='verified', got '{user.get('kyc_status')}'", "ERROR")
+        # Check investor2 balance and buy remaining tokens
+        result, error = self.make_request("GET", "/auth/me", token=investor2_token)
+        if result and result.get("user"):
+            balance = result["user"].get("usdc_balance", 0)
+            max_tokens = int(balance / 50)  # Each token costs $50
+            tokens_to_buy = min(max_tokens, remaining_tokens)
+            
+            if tokens_to_buy > 0:
+                invest_data = {
+                    "loan_id": self.loan_id,
+                    "token_count": tokens_to_buy
+                }
+                
+                result, error = self.make_request("POST", "/marketplace/invest", invest_data, investor2_token)
+                if error:
+                    self.log_result("Fund Loan Completely", False, f"Investment failed: {error}")
                     return False
                     
-            # Count users with KYC fields (newer users will have this)
-            if "kyc_status" in user:
-                users_with_kyc += 1
-                if user.get("kyc_status") == "verified":
-                    found_verified_users += 1
+                if result.get("success"):
+                    self.log_result("Fund Loan Completely", True, 
+                                  f"Investor2 bought {tokens_to_buy} tokens, loan should be funded")
+                    return True
+                    
+        self.log_result("Fund Loan Completely", False, "Could not complete funding")
+        return False
         
-        if not found_admin:
-            self.log("❌ Test admin not found in users list", "ERROR")
+    def test_repayment_simulation(self):
+        """Test 10: Simulate repayment (triggers Email 6)"""
+        if not self.loan_id:
+            self.log_result("Repayment Simulation (Email 6)", False, "No loan ID available")
             return False
             
-        if users_with_kyc == 0:
-            self.log("❌ No users with KYC fields found", "ERROR")
-            return False
-            
-        self.log(f"✅ Admin users list successful - {len(users)} users returned, {users_with_kyc} with KYC fields, {found_verified_users} verified")
-        return True
-    
-    def test_login_existing_user(self) -> bool:
-        """Test 12: Login existing user"""
-        self.log("=== TEST 12: Login Existing User ===")
+        data = {"loan_id": self.loan_id}
         
-        # Use the borrower email from our test
-        if "borrower" not in self.users:
-            self.log("❌ No borrower user data available", "ERROR")
+        result, error = self.make_request("POST", "/admin/simulate-repayment", data, self.admin_token)
+        if error:
+            self.log_result("Repayment Simulation (Email 6)", False, error)
             return False
             
-        borrower_email = self.users["borrower"]["email"]
-        login_data = {
-            "email": borrower_email,
-            "password": "test123"
-        }
+        if result.get("success") and result.get("distributions"):
+            distributions = result["distributions"]
+            total_yield = sum(d.get("yield_amount", 0) for d in distributions)
+            self.log_result("Repayment Simulation (Email 6)", True, 
+                          f"Yield distributed: ${total_yield:.2f} to {len(distributions)} investors")
+            return True
+        else:
+            self.log_result("Repayment Simulation (Email 6)", False, f"Simulation failed: {result}")
+            return False
+        """Test 10: Simulate repayment (triggers Email 6)"""
+        if not self.loan_id:
+            self.log_result("Repayment Simulation (Email 6)", False, "No loan ID available")
+            return False
+            
+        data = {"loan_id": self.loan_id}
         
-        result = self.make_request("POST", "/auth/login", login_data)
-        
-        if "error" in result:
-            self.log("❌ Login failed", "ERROR")
+        result, error = self.make_request("POST", "/admin/simulate-repayment", data, self.admin_token)
+        if error:
+            self.log_result("Repayment Simulation (Email 6)", False, error)
             return False
             
-        # Verify response includes kyc_status and identity_token
-        user = result.get("user", {})
-        if user.get("kyc_status") != "verified":
-            self.log(f"❌ Expected kyc_status='verified', got '{user.get('kyc_status')}'", "ERROR")
+        if result.get("success") and result.get("distributions"):
+            distributions = result["distributions"]
+            total_yield = sum(d.get("yield_amount", 0) for d in distributions)
+            self.log_result("Repayment Simulation (Email 6)", True, 
+                          f"Yield distributed: ${total_yield:.2f} to {len(distributions)} investors")
+            return True
+        else:
+            self.log_result("Repayment Simulation (Email 6)", False, f"Simulation failed: {result}")
             return False
             
-        identity_token = user.get("identity_token")
-        if not identity_token or not identity_token.startswith("0x"):
-            self.log(f"❌ Expected identity_token starting with '0x', got '{identity_token}'", "ERROR")
+    def test_repayment_reminders(self):
+        """Test 11: Trigger repayment reminders (Email 4 check)"""
+        result, error = self.make_request("POST", "/admin/trigger-reminders", {}, self.admin_token)
+        if error:
+            self.log_result("Repayment Reminders (Email 4)", False, error)
             return False
             
-        self.log("✅ Login successful - response includes kyc_status and identity_token")
-        return True
-    
-    def run_all_tests(self) -> Dict[str, bool]:
-        """Run all KYC integration tests"""
-        self.log("🚀 Starting KYC Integration Tests")
-        self.log(f"Backend URL: {BACKEND_URL}")
+        if result.get("success") and result.get("message"):
+            self.log_result("Repayment Reminders (Email 4)", True, result["message"])
+            return True
+        else:
+            self.log_result("Repayment Reminders (Email 4)", False, f"Reminder trigger failed: {result}")
+            return False
+            
+    def check_backend_logs(self):
+        """Test 12: Check backend logs for [EMAIL-SKIP] entries"""
+        try:
+            # Check supervisor backend error logs (where email logs are written)
+            import subprocess
+            result = subprocess.run(
+                ["tail", "-n", "200", "/var/log/supervisor/backend.err.log"],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                log_content = result.stdout
+                email_skip_count = log_content.count("[EMAIL-SKIP]")
+                if email_skip_count > 0:
+                    # Extract email types that were skipped
+                    email_types = []
+                    for line in log_content.split('\n'):
+                        if '[EMAIL-SKIP]' in line:
+                            if 'LOAN_APPLICATION_RECEIVED' in line:
+                                email_types.append('Email 1: Loan Application Received')
+                            elif 'CREDIT_SCORE_READY' in line:
+                                email_types.append('Email 2: Credit Score Ready')
+                            elif 'LOAN_APPROVED_TOKENS_MINTED' in line:
+                                email_types.append('Email 3: Loan Approved')
+                            elif 'INVESTMENT_CONFIRMED' in line:
+                                email_types.append('Email 5: Investment Confirmed')
+                    
+                    self.log_result("Backend Logs Check", True, 
+                                  f"Found {email_skip_count} [EMAIL-SKIP] entries: {', '.join(email_types)}")
+                    return True
+                else:
+                    self.log_result("Backend Logs Check", False, 
+                                  "No [EMAIL-SKIP] entries found in error logs")
+                    return False
+            else:
+                self.log_result("Backend Logs Check", False, 
+                              f"Failed to read logs: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            self.log_result("Backend Logs Check", False, f"Log check error: {str(e)}")
+            return False
+            
+    def run_complete_test(self):
+        """Run the complete email integration test flow"""
+        print("=" * 80)
+        print("TRANCHLY EMAIL INTEGRATION TEST")
+        print("Testing complete flow with Resend email triggers (graceful skip mode)")
+        print("=" * 80)
+        print()
         
         tests = [
             ("Health Check", self.test_health_check),
-            ("Signup Borrower", self.test_signup_borrower),
-            ("Signup Admin", self.test_signup_admin),
-            ("Signup Investor", self.test_signup_investor),
-            ("KYC Status (Borrower)", self.test_kyc_status_borrower),
-            ("KYC Skip (Sandbox)", self.test_kyc_skip_sandbox),
-            ("KYC Status After Skip", self.test_kyc_status_after_skip),
-            ("Auth Me After Skip", self.test_auth_me_after_skip),
-            ("KYC Complete (Investor)", self.test_kyc_complete_investor),
-            ("KYC Webhook", self.test_kyc_webhook),
-            ("Admin Users List", self.test_admin_users_list),
-            ("Login Existing User", self.test_login_existing_user),
+            ("Borrower Signup", self.test_borrower_signup),
+            ("Borrower KYC Skip", self.test_borrower_kyc_skip),
+            ("Loan Application (Email 1+2)", self.test_loan_application),
+            ("Admin Signup", self.test_admin_signup),
+            ("Loan Approval (Email 3)", self.test_loan_approval),
+            ("Investor Signup", self.test_investor_signup),
+            ("Investor KYC Skip", self.test_investor_kyc_skip),
+            ("Investment (Email 5)", self.test_investment),
+            ("Fund Loan Completely", self.test_fund_loan_completely),
+            ("Repayment Simulation (Email 6)", self.test_repayment_simulation),
+            ("Repayment Reminders (Email 4)", self.test_repayment_reminders),
+            ("Backend Logs Check", self.check_backend_logs),
         ]
         
-        results = {}
         passed = 0
         total = len(tests)
         
         for test_name, test_func in tests:
+            print(f"\nRunning: {test_name}")
             try:
-                result = test_func()
-                results[test_name] = result
-                if result:
+                if test_func():
                     passed += 1
-                self.log("")  # Empty line for readability
+                time.sleep(1)  # Brief pause between tests
             except Exception as e:
-                self.log(f"❌ {test_name} crashed: {str(e)}", "ERROR")
-                results[test_name] = False
-                self.log("")
+                self.log_result(test_name, False, f"Exception: {str(e)}")
+                
+        print("\n" + "=" * 80)
+        print("EMAIL INTEGRATION TEST SUMMARY")
+        print("=" * 80)
         
-        # Summary
-        self.log("=" * 50)
-        self.log(f"🏁 TEST SUMMARY: {passed}/{total} tests passed")
-        self.log("=" * 50)
+        for result in self.test_results:
+            print(result)
+            
+        print(f"\nOVERALL RESULT: {passed}/{total} tests passed")
         
-        for test_name, result in results.items():
-            status = "✅ PASS" if result else "❌ FAIL"
-            self.log(f"{status} - {test_name}")
-        
-        return results
-
-def main():
-    """Main test runner"""
-    tester = KYCTester()
-    results = tester.run_all_tests()
-    
-    # Exit with error code if any tests failed
-    failed_tests = [name for name, result in results.items() if not result]
-    if failed_tests:
-        print(f"\n❌ {len(failed_tests)} test(s) failed:")
-        for test in failed_tests:
-            print(f"  - {test}")
-        sys.exit(1)
-    else:
-        print(f"\n✅ All {len(results)} tests passed!")
-        sys.exit(0)
+        if passed == total:
+            print("🎉 ALL EMAIL INTEGRATION TESTS PASSED!")
+            print("✅ All email trigger points work without crashing")
+            print("✅ Emails are gracefully skipped with placeholder API key")
+            print("✅ Complete loan lifecycle flow functional")
+        else:
+            print(f"❌ {total - passed} tests failed")
+            
+        return passed == total
 
 if __name__ == "__main__":
-    main()
+    tester = TranchlyEmailTester()
+    success = tester.run_complete_test()
+    exit(0 if success else 1)
