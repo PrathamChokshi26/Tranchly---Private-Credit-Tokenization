@@ -95,7 +95,7 @@ def _info_row(label: str, value: str) -> str:
 def _send(to: str, subject: str, html: str, email_type: str, user_id: str = ""):
     """Send an email via Resend. Never raises — logs on failure."""
     try:
-        if not RESEND_API_KEY or RESEND_API_KEY == "your_resend_api_key":
+        if not RESEND_API_KEY:
             logger.info(f"[EMAIL-SKIP] {email_type} to {to} — no valid Resend API key configured")
             return None
 
