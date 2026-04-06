@@ -14,7 +14,10 @@ FROM_EMAIL = os.environ.get("FROM_EMAIL", "noreply@tranchly.finance")
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "hello@tranchly.finance")
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "https://tranchly.finance")
 
+# Set Resend key at module load
 resend.api_key = RESEND_API_KEY
+logger.info(f"[EMAIL-INIT] RESEND_API_KEY loaded: {'yes (' + RESEND_API_KEY[:8] + '...)' if RESEND_API_KEY else 'EMPTY'}")
+logger.info(f"[EMAIL-INIT] FROM_EMAIL={FROM_EMAIL}")
 
 
 # ─── HTML template wrapper ──────────────────────────────────────────
@@ -95,21 +98,26 @@ def _info_row(label: str, value: str) -> str:
 def _send(to: str, subject: str, html: str, email_type: str, user_id: str = ""):
     """Send an email via Resend. Never raises — logs on failure."""
     try:
-        if not RESEND_API_KEY:
-            logger.info(f"[EMAIL-SKIP] {email_type} to {to} — no valid Resend API key configured")
+        # Re-read key at send time in case it was loaded late
+        api_key = resend.api_key or os.environ.get("RESEND_API_KEY", "")
+        if not api_key:
+            logger.warning(f"[EMAIL-SKIP] {email_type} to {to} — no Resend API key")
             return None
+        resend.api_key = api_key
 
+        from_addr = os.environ.get("FROM_EMAIL", FROM_EMAIL)
         params = {
-            "from": f"Tranchly <{FROM_EMAIL}>",
+            "from": f"Tranchly <{from_addr}>",
             "to": [to],
             "subject": subject,
             "html": html,
         }
+        logger.info(f"[EMAIL-SEND] Attempting {email_type} to {to} from {from_addr}")
         result = resend.Emails.send(params)
-        logger.info(f"[EMAIL-OK] {email_type} sent to {to} (id={result.get('id', '?')})")
+        logger.info(f"[EMAIL-OK] {email_type} sent to {to} — response: {result}")
         return result
     except Exception as e:
-        logger.error(f"[EMAIL-FAIL] {email_type} to {to} user_id={user_id} error={e}")
+        logger.error(f"[EMAIL-FAIL] {email_type} to {to} user_id={user_id} error={type(e).__name__}: {e}")
         return None
 
 

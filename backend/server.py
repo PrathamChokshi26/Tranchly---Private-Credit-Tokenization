@@ -1,10 +1,15 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from dotenv import load_dotenv
+from pathlib import Path
+
+# Load .env BEFORE any module that reads env vars
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
@@ -29,9 +34,6 @@ from services.email_service import (
     send_investment_confirmed,
     send_yield_distributed,
 )
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
