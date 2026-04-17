@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, AlertTriangle, CheckCircle2, ArrowLeft, Award } from 'lucide-react';
+import PlaidLink from '../../components/PlaidLink';
+import StripeConnect from '../../components/StripeConnect';
 
 const industries = ['Technology', 'Healthcare', 'Retail', 'Food & Beverage', 'Manufacturing', 'Construction', 'Real Estate', 'Professional Services', 'Education', 'Transportation', 'Agriculture', 'Entertainment', 'E-Commerce', 'SaaS', 'Fintech', 'Other'];
 
 export default function LoanApplication() {
-  const { api } = useAuth();
+  const { api, user } = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [plaidConnected, setPlaidConnected] = useState(false);
+  const [stripeConnected, setStripeConnected] = useState(false);
   const [form, setForm] = useState({
     business_name: '', industry: 'Technology', years_operating: '', monthly_revenue: '',
     loan_amount_requested: '', loan_purpose: '', bank_balance: '', monthly_expenses: '',
@@ -130,50 +134,106 @@ export default function LoanApplication() {
       )}
 
       {step === 2 && (
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Bank & Financial Data</h2>
-          <p className="text-sm text-gray-500">Mock Plaid connection — enter your financial details manually</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bank Balance ($)</label>
-              <input type="number" min="0" value={form.bank_balance} onChange={e => set('bank_balance', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" placeholder="30000" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Expenses ($)</label>
-              <input type="number" min="0" value={form.monthly_expenses} onChange={e => set('monthly_expenses', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" placeholder="10000" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Existing Debt ($)</label>
-              <input type="number" min="0" value={form.existing_debt} onChange={e => set('existing_debt', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1"># Existing Loans</label>
-              <input type="number" min="0" value={form.existing_loans} onChange={e => set('existing_loans', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bureau Score</label>
-              <input type="number" min="300" max="850" value={form.bureau_score} onChange={e => set('bureau_score', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Revenue Trend (decimal)</label>
-              <input type="number" step="0.01" value={form.revenue_trend} onChange={e => set('revenue_trend', e.target.value)}
-                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-              <p className="text-xs text-gray-400 mt-1">e.g. 0.10 = 10% growth</p>
+        <div className="bg-white rounded-xl border p-6 space-y-6">
+          <div>
+            <h2 className="font-semibold text-gray-900 text-lg">Connect Live Data Sources</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Connect your bank and revenue accounts for a better credit score. Live data provides up to +5% score boost.
+            </p>
+          </div>
+
+          {/* Data Quality Benefit Banner */}
+          <div className="p-4 bg-gradient-to-r from-emerald-50 to-purple-50 border border-emerald-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <Award className="text-emerald-600 mt-0.5" size={20} />
+              <div>
+                <p className="font-semibold text-gray-900">Why connect live data?</p>
+                <ul className="text-sm text-gray-600 mt-1 space-y-1">
+                  <li>✓ Plaid + Stripe: <span className="font-semibold text-emerald-600">+5% score boost</span> (100% data quality)</li>
+                  <li>✓ Plaid or Stripe: <span className="font-semibold text-blue-600">+3% score boost</span> (70% data quality)</li>
+                  <li>✓ Manual only: No boost (40% data quality)</li>
+                </ul>
+              </div>
             </div>
           </div>
-          <div className="flex justify-between">
-            <button type="button" onClick={() => setStep(1)} className="text-gray-600 px-4 py-2 font-medium">Back</button>
-            <button type="submit" disabled={loading}
-              className="bg-gradient-to-r from-teal-500 to-teal-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:from-teal-600 hover:to-teal-700 disabled:opacity-50 flex items-center gap-2">
-              {loading ? 'Scoring...' : 'Submit Application'} {!loading && <ArrowRight size={16} />}
+
+          {/* Plaid Banking Connection */}
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+              Banking Data via Plaid
+              {plaidConnected && <CheckCircle2 className="text-emerald-600" size={18} />}
+            </h3>
+            <PlaidLink
+              api={api}
+              userId={user?.sub}
+              onSuccess={() => setPlaidConnected(true)}
+              onError={(err) => console.error('Plaid error:', err)}
+            />
+          </div>
+
+          {/* Stripe Revenue Connection */}
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+              Revenue Data via Stripe
+              {stripeConnected && <CheckCircle2 className="text-purple-600" size={18} />}
+            </h3>
+            <StripeConnect
+              api={api}
+              onSuccess={() => setStripeConnected(true)}
+              onError={(err) => console.error('Stripe error:', err)}
+            />
+          </div>
+
+          {/* Manual Input (Optional Fallback) */}
+          <div className="border-t pt-4">
+            <details className="cursor-pointer">
+              <summary className="font-medium text-gray-700 hover:text-gray-900">
+                Or enter financial data manually (lower data quality score)
+              </summary>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Balance ($)</label>
+                  <input type="number" min="0" value={form.bank_balance} onChange={e => set('bank_balance', e.target.value)}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" placeholder="30000" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Expenses ($)</label>
+                  <input type="number" min="0" value={form.monthly_expenses} onChange={e => set('monthly_expenses', e.target.value)}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" placeholder="10000" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Existing Debt ($)</label>
+                  <input type="number" min="0" value={form.existing_debt} onChange={e => set('existing_debt', e.target.value)}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"># Existing Loans</label>
+                  <input type="number" min="0" value={form.existing_loans} onChange={e => set('existing_loans', e.target.value)}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
+                </div>
+              </div>
+            </details>
+          </div>
+
+          {/* Navigation */}
+          <div className="flex justify-between pt-2">
+            <button
+              onClick={() => setStep(1)}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 flex items-center gap-2"
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+            >
+              {loading ? 'Analyzing...' : 'Submit Application'}
+              {!loading && <ArrowRight size={16} />}
             </button>
           </div>
-        </form>
+        </div>
       )}
 
       {step === 3 && result && (
@@ -211,6 +271,50 @@ export default function LoanApplication() {
               </div>
             )}
           </div>
+
+          {/* Data Quality Score */}
+          {result.credit_score.data_quality && (
+            <div className="bg-gradient-to-r from-emerald-50 to-purple-50 rounded-xl border-2 border-emerald-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-gray-900">Data Quality Score</h3>
+                <span className="px-3 py-1 bg-emerald-600 text-white rounded-full font-bold text-sm">
+                  {result.credit_score.data_quality.quality_score}/100
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-600">Quality Grade</p>
+                  <p className="text-lg font-bold text-gray-900">{result.credit_score.data_quality.quality_grade}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Score Boost</p>
+                  <p className="text-lg font-bold text-emerald-600">+{result.credit_score.quality_boost?.toFixed(1) || 0} pts</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Base Score</p>
+                  <p className="text-lg font-bold text-gray-700">{result.credit_score.base_score?.toFixed(1) || result.credit_score.composite_score}</p>
+                </div>
+              </div>
+              {result.credit_score.data_quality.data_sources?.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">Connected Data Sources:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {result.credit_score.data_quality.data_sources.map((source, idx) => (
+                      <div key={idx} className="px-3 py-2 bg-white rounded-lg border border-emerald-300 text-sm">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="text-emerald-600" size={16} />
+                          <span className="font-semibold">{source.name}</span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {source.institution || source.business_name || 'Connected'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Signal Breakdown */}
           <div className="bg-white rounded-xl border p-6">

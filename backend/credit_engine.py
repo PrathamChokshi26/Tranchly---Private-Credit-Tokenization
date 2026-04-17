@@ -8,9 +8,16 @@ Calculates composite credit score from weighted signals:
 
 Grades: A (78-100, 8-10% APR), B (58-77, 11-14% APR), C (42-57, 15-18% APR), Reject (<42)
 Auto-reject: months_operating < 6, monthly_revenue < 3000, negative cash flow
+
+Data Quality Score: Rewards live data from Plaid/Stripe over manual inputs
+- Both Plaid + Stripe: 100% quality, +5% score boost
+- Plaid only: 70% quality, +3% boost
+- Stripe only: 70% quality, +3% boost  
+- Manual only: 40% quality, no boost
 """
 
 import random
+from typing import Dict, Any, Optional
 
 # Industry risk factors (lower = riskier)
 INDUSTRY_RISK_MAP = {
@@ -32,33 +39,152 @@ INDUSTRY_RISK_MAP = {
     "other": 0.65,
 }
 
-def calculate_credit_score(application_data: dict) -> dict:
-    """Calculate credit score from loan application data."""
+def calculate_data_quality_score(plaid_data: Optional[Dict] = None, stripe_data: Optional[Dict] = None) -> Dict[str, Any]:
+    """
+    Calculate Data Quality Score based on live data sources.
+    
+    Returns:
+        Dictionary with quality_score (0-100), boost_percentage, and data_sources
+    """
+    has_plaid = plaid_data is not None and plaid_data.get("source") == "plaid"
+    has_stripe = stripe_data is not None and stripe_data.get("source") == "stripe"
+    
+    data_sources = []
+    if has_plaid:
+        data_sources.append({
+            "name": "Plaid",
+            "connected": True,
+            "institution": plaid_data.get("institution_name", "Bank"),
+            "last_four": plaid_data.get("account_last_four", "****"),
+        })
+    
+    if has_stripe:
+        data_sources.append({
+            "name": "Stripe", 
+            "connected": True,
+            "business_name": stripe_data.get("business_name", "Business"),
+            "transactions": stripe_data.get("total_transactions", 0),
+        })
+    
+    # Calculate quality score
+    if has_plaid and has_stripe:
+        quality_score = 100
+        boost_percentage = 5.0  # 5% boost to final score
+        quality_grade = "Excellent"
+    elif has_plaid or has_stripe:
+        quality_score = 70
+        boost_percentage = 3.0  # 3% boost
+        quality_grade = "Good"
+    else:
+        quality_score = 40
+        boost_percentage = 0.0  # No boost for manual data only
+        quality_grade = "Manual"
+    
+    return {
+        "quality_score": quality_score,
+        "quality_grade": quality_grade,
+        "boost_percentage": boost_percentage,
+        "data_sources": data_sources,
+        "has_live_data": has_plaid or has_stripe,
+    }
+
+
+def merge_live_data(application_data: dict, plaid_data: Optional[Dict] = None, stripe_data: Optional[Dict] = None) -> dict:
+    """
+    Merge live Plaid/Stripe data with application data.
+    Live data overrides manual inputs where available.
+    """
+    merged = application_data.copy()
+    
+    # Plaid data (banking)
+    if plaid_data and plaid_data.get("source") == "plaid":
+        merged["bank_balance"] = plaid_data.get("bank_balance", merged.get("bank_balance", 0))
+        merged["cash_buffer_days"] = plaid_data.get("cash_buffer_days", 0)
+        merged["negative_balance_days"] = plaid_data.get("negative_balance_days", 0)
+        
+        # If Plaid revenue is higher than manual, use it
+        plaid_revenue = plaid_data.get("avg_monthly_revenue", 0)
+        if plaid_revenue > merged.get("monthly_revenue", 0):
+            merged["monthly_revenue"] = plaid_revenue
+        
+        # Use Plaid revenue trend if available
+        if plaid_data.get("revenue_trend"):
+            merged["revenue_trend"] = plaid_data["revenue_trend"]
+    
+    # Stripe data (revenue/MRR)
+    if stripe_data and stripe_data.get("source") == "stripe":
+        stripe_revenue = stripe_data.get("avg_monthly_revenue", 0)
+        stripe_mrr = stripe_data.get("current_mrr", 0)
+        
+        # Use the higher of Stripe revenue or MRR
+        stripe_monthly = max(stripe_revenue, stripe_mrr)
+        
+        # If Stripe revenue is higher than current, use it
+        if stripe_monthly > merged.get("monthly_revenue", 0):
+            merged["monthly_revenue"] = stripe_monthly
+        
+        # Use Stripe revenue trend if available
+        if stripe_data.get("revenue_trend"):
+            merged["revenue_trend"] = stripe_data["revenue_trend"]
+        
+        # Use Stripe consistency for customer retention proxy
+        if stripe_data.get("revenue_consistency"):
+            merged["customer_retention"] = stripe_data["revenue_consistency"]
+    
+    # Mark data sources
+    merged["_data_sources"] = {
+        "plaid_used": plaid_data is not None,
+        "stripe_used": stripe_data is not None,
+    }
+    
+    return merged
+
+
+def calculate_credit_score(
+    application_data: dict, 
+    plaid_data: Optional[Dict] = None, 
+    stripe_data: Optional[Dict] = None
+) -> dict:
+    """
+    Calculate credit score from loan application data.
+    Integrates live data from Plaid (banking) and Stripe (revenue) when available.
+    """
+    
+    # Calculate Data Quality Score
+    data_quality = calculate_data_quality_score(plaid_data, stripe_data)
+    
+    # Merge live data with application data
+    merged_data = merge_live_data(application_data, plaid_data, stripe_data)
     
     auto_reject_flags = []
     
-    # Extract inputs
-    monthly_revenue = application_data.get("monthly_revenue", 0)
-    years_operating = application_data.get("years_operating", 0)
+    # Extract inputs (now from merged data)
+    monthly_revenue = merged_data.get("monthly_revenue", 0)
+    years_operating = merged_data.get("years_operating", 0)
     months_operating = years_operating * 12
-    industry = application_data.get("industry", "other").lower().replace(" ", "_")
-    loan_amount = application_data.get("loan_amount_requested", 0)
+    industry = merged_data.get("industry", "other").lower().replace(" ", "_")
     
-    # Mock bank data inputs
-    bank_balance = application_data.get("bank_balance", monthly_revenue * 2)
-    monthly_expenses = application_data.get("monthly_expenses", monthly_revenue * 0.7)
-    existing_debt = application_data.get("existing_debt", 0)
-    bureau_score = application_data.get("bureau_score", 680)
+    # Bank data (prefer Plaid, fallback to manual)
+    bank_balance = merged_data.get("bank_balance", monthly_revenue * 2)
+    monthly_expenses = merged_data.get("monthly_expenses", monthly_revenue * 0.7)
+    existing_debt = merged_data.get("existing_debt", 0)
+    bureau_score = merged_data.get("bureau_score", 680)
     
     # Derived metrics
     cash_flow = monthly_revenue - monthly_expenses
-    cash_buffer_days = (bank_balance / (monthly_expenses / 30)) if monthly_expenses > 0 else 0
+    
+    # Use Plaid cash_buffer_days if available, otherwise calculate
+    if plaid_data and "cash_buffer_days" in plaid_data:
+        cash_buffer_days = plaid_data["cash_buffer_days"]
+    else:
+        cash_buffer_days = (bank_balance / (monthly_expenses / 30)) if monthly_expenses > 0 else 0
+    
     debt_to_revenue = (existing_debt / (monthly_revenue * 12)) if monthly_revenue > 0 else 999
-    revenue_trend = application_data.get("revenue_trend", 0.05)  # 5% default growth
-    customer_retention = application_data.get("customer_retention", 0.80)
-    on_time_rate = application_data.get("on_time_rate", 1.0)
-    platform_history_score = application_data.get("platform_history_score", 50)
-    payroll_consistency = application_data.get("payroll_consistency", 0.85)
+    revenue_trend = merged_data.get("revenue_trend", 0.05)  # Live data overrides default
+    customer_retention = merged_data.get("customer_retention", 0.80)
+    on_time_rate = merged_data.get("on_time_rate", 1.0)
+    platform_history_score = merged_data.get("platform_history_score", 50)
+    payroll_consistency = merged_data.get("payroll_consistency", 0.85)
     
     # Auto-reject checks
     if months_operating < 6:
@@ -176,18 +302,23 @@ def calculate_credit_score(application_data: dict) -> dict:
     repayment_score = (platform_score * 0.3 + ontime_score * 0.35 + bureau_normalized * 0.35)
     
     # === COMPOSITE SCORE ===
-    composite_score = (
+    base_composite_score = (
         cash_flow_score * 0.30 +
         debt_score * 0.25 +
         maturity_score * 0.25 +
         repayment_score * 0.20
     )
     
+    # Apply Data Quality Boost
+    quality_boost = base_composite_score * (data_quality["boost_percentage"] / 100)
+    composite_score = base_composite_score + quality_boost
+    
     # Force reject if auto-reject flags
     if auto_reject_flags:
         composite_score = min(composite_score, 35)
     
-    composite_score = round(composite_score, 1)
+    # Cap at 100
+    composite_score = min(round(composite_score, 1), 100.0)
     
     # === GRADE ASSIGNMENT ===
     if composite_score >= 78:
@@ -224,10 +355,13 @@ def calculate_credit_score(application_data: dict) -> dict:
     
     return {
         "composite_score": composite_score,
+        "base_score": round(base_composite_score, 1),
+        "quality_boost": round(quality_boost, 1),
         "grade": grade,
         "suggested_apr": suggested_apr,
         "max_loan_amount": max_loan,
         "auto_reject_flags": auto_reject_flags,
+        "data_quality": data_quality,
         "signals": {
             "cash_flow": {
                 "score": round(cash_flow_score, 1),

@@ -351,6 +351,150 @@ async def get_platform_stats():
         "total_borrowers": await db.users.count_documents({"role": "borrower"}),
     }
 
+# ============= PLAID INTEGRATION =============
+
+class PlaidLinkTokenRequest(BaseModel):
+    user_id: str
+
+class PlaidTokenExchangeRequest(BaseModel):
+    public_token: str
+
+@api_router.post("/plaid/create-link-token")
+async def create_plaid_link_token(req: PlaidLinkTokenRequest, request: Request):
+    """Create Plaid Link token for frontend."""
+    from services.plaid_service import create_link_token
+    
+    user = await get_current_user(request)
+    
+    try:
+        link_token = create_link_token(user["sub"])
+        return {"link_token": link_token}
+    except Exception as e:
+        logger.error(f"Failed to create Plaid link token: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/plaid/exchange-token")
+async def exchange_plaid_token(req: PlaidTokenExchangeRequest, request: Request):
+    """Exchange Plaid public token for access token."""
+    from services.plaid_service import exchange_public_token
+    
+    user = await get_current_user(request)
+    
+    try:
+        result = exchange_public_token(req.public_token)
+        
+        # Store access token in user record
+        await db.users.update_one(
+            {"id": user["sub"]},
+            {"$set": {
+                "plaid_access_token": result["access_token"],
+                "plaid_item_id": result["item_id"],
+                "plaid_connected_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        
+        logger.info(f"Plaid token exchanged for user {user['sub']}")
+        return {"success": True, "item_id": result["item_id"]}
+    except Exception as e:
+        logger.error(f"Failed to exchange Plaid token: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/plaid/analyze")
+async def analyze_plaid_data(request: Request):
+    """Analyze Plaid banking data for credit scoring."""
+    from services.plaid_service import analyze_bank_data
+    
+    user = await get_current_user(request)
+    
+    # Fetch user from DB to get plaid_access_token
+    user_doc = await db.users.find_one({"id": user["sub"]}, {"_id": 0})
+    if not user_doc or not user_doc.get("plaid_access_token"):
+        raise HTTPException(status_code=400, detail="Plaid account not connected")
+    
+    try:
+        analysis = analyze_bank_data(user_doc["plaid_access_token"])
+        
+        # Store analysis in user record
+        await db.users.update_one(
+            {"id": user["sub"]},
+            {"$set": {
+                "plaid_analysis": analysis,
+                "plaid_analyzed_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        
+        return analysis
+    except Exception as e:
+        logger.error(f"Failed to analyze Plaid data: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============= STRIPE INTEGRATION =============
+
+class StripeConnectRequest(BaseModel):
+    api_key: str
+
+@api_router.post("/stripe/connect")
+async def connect_stripe(req: StripeConnectRequest, request: Request):
+    """Connect user's Stripe account by verifying API key."""
+    from services.stripe_service import verify_stripe_connection
+    
+    user = await get_current_user(request)
+    
+    try:
+        verification = verify_stripe_connection(req.api_key)
+        
+        if not verification.get("valid"):
+            raise HTTPException(status_code=400, detail=verification.get("error", "Invalid API key"))
+        
+        # Store encrypted API key in user record (in production, use proper encryption)
+        await db.users.update_one(
+            {"id": user["sub"]},
+            {"$set": {
+                "stripe_api_key": req.api_key,  # TODO: Encrypt in production
+                "stripe_business_name": verification.get("business_name", ""),
+                "stripe_connected_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        
+        logger.info(f"Stripe connected for user {user['sub']}: {verification.get('business_name')}")
+        return {"success": True, "business_name": verification.get("business_name")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to connect Stripe: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/stripe/analyze")
+async def analyze_stripe_data(request: Request):
+    """Analyze Stripe revenue data for credit scoring."""
+    from services.stripe_service import analyze_stripe_revenue
+    
+    user = await get_current_user(request)
+    
+    # Fetch user from DB to get stripe_api_key
+    user_doc = await db.users.find_one({"id": user["sub"]}, {"_id": 0})
+    if not user_doc or not user_doc.get("stripe_api_key"):
+        raise HTTPException(status_code=400, detail="Stripe account not connected")
+    
+    try:
+        analysis = analyze_stripe_revenue(user_doc["stripe_api_key"], days=90)
+        
+        # Store analysis in user record
+        await db.users.update_one(
+            {"id": user["sub"]},
+            {"$set": {
+                "stripe_analysis": analysis,
+                "stripe_analyzed_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        
+        return analysis
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to analyze Stripe data: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 # ============= BORROWER: LOAN APPLICATION =============
 
 @api_router.post("/loans/apply")
@@ -362,19 +506,27 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
     if req.loan_amount_requested < 20000 or req.loan_amount_requested > 500000:
         raise HTTPException(status_code=400, detail="Loan amount must be between $20,000 and $500,000")
     
-    # Run credit scoring
-    score_result = calculate_credit_score(req.model_dump())
+    # Retrieve live data if available
+    borrower = await db.users.find_one({"id": user["sub"]}, {"_id": 0})
+    plaid_data = borrower.get("plaid_analysis") if borrower else None
+    stripe_data = borrower.get("stripe_analysis") if borrower else None
+    
+    # Run credit scoring with live data
+    score_result = calculate_credit_score(req.model_dump(), plaid_data, stripe_data)
     
     # Save credit score
     credit_score_record = {
         "id": str(uuid.uuid4()),
         "borrower_id": user["sub"],
         "composite_score": score_result["composite_score"],
+        "base_score": score_result.get("base_score", score_result["composite_score"]),
+        "quality_boost": score_result.get("quality_boost", 0),
         "grade": score_result["grade"],
         "suggested_apr": score_result["suggested_apr"],
         "max_loan_amount": score_result["max_loan_amount"],
         "signals": score_result["signals"],
         "auto_reject_flags": score_result["auto_reject_flags"],
+        "data_quality": score_result.get("data_quality", {}),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     
@@ -1229,3 +1381,4 @@ async def startup_scheduler():
 async def shutdown_db_client():
     scheduler.shutdown()
     client.close()
+
