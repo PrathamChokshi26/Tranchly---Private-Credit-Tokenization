@@ -165,7 +165,6 @@ export default function LoanApplication() {
             </h3>
             <PlaidLink
               api={api}
-              userId={user?.sub}
               onSuccess={() => setPlaidConnected(true)}
               onError={(err) => console.error('Plaid error:', err)}
             />

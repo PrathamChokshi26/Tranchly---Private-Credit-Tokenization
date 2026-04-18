@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { CheckCircle2, Loader2, Building2, AlertTriangle } from 'lucide-react';
 
-export default function PlaidLink({ api, userId, onSuccess, onError }) {
+export default function PlaidLink({ api, onSuccess, onError }) {
   const [linkToken, setLinkToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -13,9 +13,10 @@ export default function PlaidLink({ api, userId, onSuccess, onError }) {
   // Fetch link token on mount
   useEffect(() => {
     const fetchLinkToken = async () => {
-      console.log('[Plaid] Fetching link token for user:', userId);
+      console.log('[Plaid] Fetching link token (auth via JWT)');
       try {
-        const response = await api.post('/api/plaid/create-link-token', { user_id: userId });
+        // No need to send user_id - backend extracts it from JWT token
+        const response = await api.post('/api/plaid/create-link-token');
         console.log('[Plaid] Link token response:', response.data);
         
         if (response.data && response.data.link_token) {
@@ -27,21 +28,22 @@ export default function PlaidLink({ api, userId, onSuccess, onError }) {
       } catch (error) {
         console.error('[Plaid] Failed to fetch link token:', error);
         console.error('[Plaid] Error details:', error.response?.data || error.message);
-        setError(error.response?.data?.detail || error.message || 'Failed to initialize Plaid');
+        
+        // Check for specific error types
+        if (error.response?.status === 401) {
+          setError('Authentication required. Please log in again.');
+        } else {
+          setError(error.response?.data?.detail || error.message || 'Failed to initialize Plaid');
+        }
+        
         if (onError) onError(error);
       } finally {
         setLoading(false);
       }
     };
 
-    if (userId) {
-      fetchLinkToken();
-    } else {
-      console.error('[Plaid] No userId provided');
-      setError('User ID not available');
-      setLoading(false);
-    }
-  }, [userId, api, onError]);
+    fetchLinkToken();
+  }, [api, onError]);
 
   const handleSuccess = useCallback(
     async (publicToken) => {

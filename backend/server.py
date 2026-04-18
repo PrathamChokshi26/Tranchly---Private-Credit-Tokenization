@@ -353,39 +353,47 @@ async def get_platform_stats():
 
 # ============= PLAID INTEGRATION =============
 
-class PlaidLinkTokenRequest(BaseModel):
-    user_id: str
-
-class PlaidTokenExchangeRequest(BaseModel):
-    public_token: str
-
 @api_router.post("/plaid/create-link-token")
-async def create_plaid_link_token(req: PlaidLinkTokenRequest, request: Request):
+async def create_plaid_link_token(request: Request):
     """Create Plaid Link token for frontend."""
     from services.plaid_service import create_link_token
     
-    user = await get_current_user(request)
-    
     try:
-        link_token = create_link_token(user["sub"])
+        # Get authenticated user from JWT token
+        user = await get_current_user(request)
+        user_id = user["sub"]
+        
+        logger.info(f"Creating Plaid link token for user: {user_id}")
+        link_token = create_link_token(user_id)
+        
+        logger.info(f"Plaid link token created successfully for user: {user_id}")
         return {"link_token": link_token}
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 401 Unauthorized)
+        raise
     except Exception as e:
-        logger.error(f"Failed to create Plaid link token: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to create Plaid link token: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to initialize Plaid: {str(e)}")
+
+class PlaidTokenExchangeRequest(BaseModel):
+    public_token: str
 
 @api_router.post("/plaid/exchange-token")
 async def exchange_plaid_token(req: PlaidTokenExchangeRequest, request: Request):
     """Exchange Plaid public token for access token."""
     from services.plaid_service import exchange_public_token
     
-    user = await get_current_user(request)
-    
     try:
+        # Get authenticated user
+        user = await get_current_user(request)
+        user_id = user["sub"]
+        
+        logger.info(f"Exchanging Plaid token for user: {user_id}")
         result = exchange_public_token(req.public_token)
         
         # Store access token in user record
         await db.users.update_one(
-            {"id": user["sub"]},
+            {"id": user_id},
             {"$set": {
                 "plaid_access_token": result["access_token"],
                 "plaid_item_id": result["item_id"],
@@ -393,40 +401,48 @@ async def exchange_plaid_token(req: PlaidTokenExchangeRequest, request: Request)
             }}
         )
         
-        logger.info(f"Plaid token exchanged for user {user['sub']}")
+        logger.info(f"Plaid token exchanged successfully for user: {user_id}")
         return {"success": True, "item_id": result["item_id"]}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to exchange Plaid token: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to exchange Plaid token: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to connect Plaid account: {str(e)}")
 
 @api_router.get("/plaid/analyze")
 async def analyze_plaid_data(request: Request):
     """Analyze Plaid banking data for credit scoring."""
     from services.plaid_service import analyze_bank_data
     
-    user = await get_current_user(request)
-    
-    # Fetch user from DB to get plaid_access_token
-    user_doc = await db.users.find_one({"id": user["sub"]}, {"_id": 0})
-    if not user_doc or not user_doc.get("plaid_access_token"):
-        raise HTTPException(status_code=400, detail="Plaid account not connected")
-    
     try:
+        # Get authenticated user
+        user = await get_current_user(request)
+        user_id = user["sub"]
+        
+        # Fetch user from DB to get plaid_access_token
+        user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if not user_doc or not user_doc.get("plaid_access_token"):
+            raise HTTPException(status_code=400, detail="Plaid account not connected. Please connect your bank account first.")
+        
+        logger.info(f"Analyzing Plaid data for user: {user_id}")
         analysis = analyze_bank_data(user_doc["plaid_access_token"])
         
         # Store analysis in user record
         await db.users.update_one(
-            {"id": user["sub"]},
+            {"id": user_id},
             {"$set": {
                 "plaid_analysis": analysis,
                 "plaid_analyzed_at": datetime.now(timezone.utc).isoformat(),
             }}
         )
         
+        logger.info(f"Plaid analysis completed for user: {user_id}")
         return analysis
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to analyze Plaid data: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to analyze Plaid data: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to analyze banking data: {str(e)}")
 
 # ============= STRIPE INTEGRATION =============
 
