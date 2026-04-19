@@ -13,9 +13,12 @@ export default function LoanApplication() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [validationErrors, setValidationErrors] = useState([]);
   const [result, setResult] = useState(null);
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [plaidData, setPlaidData] = useState(null);
   const [stripeConnected, setStripeConnected] = useState(false);
+  const [stripeData, setStripeData] = useState(null);
   const [form, setForm] = useState({
     business_name: '', industry: 'Technology', years_operating: '', monthly_revenue: '',
     loan_amount_requested: '', loan_purpose: '', bank_balance: '', monthly_expenses: '',
@@ -25,9 +28,71 @@ export default function LoanApplication() {
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
+  // Handle Plaid success - auto-populate form fields
+  const handlePlaidSuccess = (data) => {
+    console.log('[LoanApp] Plaid connected, data:', data);
+    setPlaidConnected(true);
+    setPlaidData(data);
+    
+    // Auto-populate form from Plaid data
+    setForm(prev => ({
+      ...prev,
+      bank_balance: data.bank_balance || prev.bank_balance,
+      monthly_revenue: data.avg_monthly_revenue || prev.monthly_revenue,
+      revenue_trend: data.revenue_trend !== undefined ? data.revenue_trend : prev.revenue_trend,
+    }));
+  };
+
+  // Handle Stripe success - auto-populate form fields
+  const handleStripeSuccess = (data) => {
+    console.log('[LoanApp] Stripe connected, data:', data);
+    setStripeConnected(true);
+    setStripeData(data);
+    
+    // Auto-populate form from Stripe data (prefer Stripe revenue if higher)
+    const stripeRevenue = Math.max(data.avg_monthly_revenue || 0, data.current_mrr || 0);
+    setForm(prev => ({
+      ...prev,
+      monthly_revenue: stripeRevenue > parseFloat(prev.monthly_revenue || 0) ? stripeRevenue : prev.monthly_revenue,
+      revenue_trend: data.revenue_trend !== undefined ? data.revenue_trend : prev.revenue_trend,
+      customer_retention: data.revenue_consistency !== undefined ? data.revenue_consistency : prev.customer_retention,
+    }));
+  };
+
+  const validateForm = () => {
+    const errors = [];
+    
+    // Step 1 validations
+    if (!form.business_name?.trim()) errors.push('Business Name is required');
+    if (!form.years_operating || parseFloat(form.years_operating) <= 0) errors.push('Years Operating must be greater than 0');
+    if (!form.monthly_revenue || parseFloat(form.monthly_revenue) <= 0) {
+      if (plaidConnected || stripeConnected) {
+        errors.push('Monthly Revenue could not be determined from connected accounts. Please enter manually.');
+      } else {
+        errors.push('Monthly Revenue is required');
+      }
+    }
+    if (!form.loan_amount_requested || parseFloat(form.loan_amount_requested) < 20000) {
+      errors.push('Loan Amount must be at least $20,000');
+    }
+    if (!form.loan_purpose?.trim()) errors.push('Loan Purpose is required');
+    
+    setValidationErrors(errors);
+    return errors.length === 0;
+  };
+
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    
     setError('');
+    setValidationErrors([]);
+    
+    // Validate form
+    if (!validateForm()) {
+      setError('Please fix the validation errors below');
+      return;
+    }
+    
     setLoading(true);
     try {
       const data = {
@@ -45,6 +110,8 @@ export default function LoanApplication() {
         payroll_consistency: parseFloat(form.payroll_consistency || 0.85),
         industry: form.industry.toLowerCase().replace(/[& ]+/g, '_'),
       };
+      
+      console.log('[LoanApp] Submitting application:', data);
       const res = await api.post('/api/loans/apply', data);
       setResult(res.data);
       setStep(3);
@@ -81,6 +148,20 @@ export default function LoanApplication() {
       </div>
 
       {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertTriangle size={16} /> {error}</div>}
+      
+      {validationErrors.length > 0 && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-700 font-semibold mb-2">
+            <AlertTriangle size={18} />
+            Please fix the following errors:
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-sm text-red-600">
+            {validationErrors.map((err, idx) => (
+              <li key={idx}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {step === 1 && (
         <div className="bg-white rounded-xl border p-6 space-y-4">
@@ -165,7 +246,7 @@ export default function LoanApplication() {
             </h3>
             <PlaidLink
               api={api}
-              onSuccess={() => setPlaidConnected(true)}
+              onSuccess={handlePlaidSuccess}
               onError={(err) => console.error('Plaid error:', err)}
             />
           </div>
@@ -178,7 +259,7 @@ export default function LoanApplication() {
             </h3>
             <StripeConnect
               api={api}
-              onSuccess={() => setStripeConnected(true)}
+              onSuccess={handleStripeSuccess}
               onError={(err) => console.error('Stripe error:', err)}
             />
           </div>

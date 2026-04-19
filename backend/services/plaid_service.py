@@ -14,6 +14,7 @@ from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.accounts_get_request import AccountsGetRequest
+from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,31 @@ def exchange_public_token(public_token: str) -> dict:
     }
 
 
+def get_institution_name(institution_id: str) -> str:
+    """
+    Fetch institution name from Plaid.
+    
+    Args:
+        institution_id: Plaid institution ID (e.g., "ins_109508")
+        
+    Returns:
+        Institution name (e.g., "First Platypus Bank")
+    """
+    client = _get_client()
+    try:
+        request = InstitutionsGetByIdRequest(
+            institution_id=institution_id,
+            country_codes=[CountryCode("US")],
+        )
+        response = client.institutions_get_by_id(request)
+        institution_name = response.institution.name
+        logger.info(f"Fetched institution name: {institution_name} for ID: {institution_id}")
+        return institution_name
+    except Exception as e:
+        logger.error(f"Failed to fetch institution name for {institution_id}: {str(e)}")
+        return institution_id  # Return ID as fallback
+
+
 def analyze_bank_data(access_token: str) -> dict:
     """Pull 90 days of transactions and compute credit signals."""
     client = _get_client()
@@ -89,6 +115,7 @@ def analyze_bank_data(access_token: str) -> dict:
     acct_req = AccountsGetRequest(access_token=access_token)
     acct_resp = client.accounts_get(acct_req)
     accounts = acct_resp.accounts
+    institution_id = ""
     institution_name = ""
     account_last_four = ""
     current_balance = 0
@@ -96,9 +123,12 @@ def analyze_bank_data(access_token: str) -> dict:
         primary = accounts[0]
         current_balance = primary.balances.current or 0
         account_last_four = primary.mask or ""
+    
+    # Fetch institution name
     item = acct_resp.item
     if item and item.institution_id:
-        institution_name = item.institution_id
+        institution_id = item.institution_id
+        institution_name = get_institution_name(institution_id)
 
     # --- Compute signals ---
     monthly_inflows = defaultdict(float)
