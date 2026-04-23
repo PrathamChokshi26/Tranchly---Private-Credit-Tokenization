@@ -655,34 +655,67 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
         if not application_data.get("monthly_revenue"):
             raise HTTPException(status_code=400, detail="Unable to determine monthly revenue from provided data")
         
-        logger.info(f"Running credit scoring with data: {application_data}")
-        
-        # Run credit scoring
+        # Pass personal guarantee / business assets / bureau score into application_data
+        application_data["personal_guarantee"] = bool(req.personal_guarantee)
+        application_data["business_assets"] = float(req.business_assets or 0)
+        application_data["bureau_score"] = float(req.bureau_score or 650)
+        application_data["loan_amount"] = loan_amount
+
+        # Look up returning-borrower platform history
+        prior_loans_cursor = db.loans.find(
+            {"borrower_id": user["sub"], "status": {"$in": ["repaid", "active", "funded", "approved"]}},
+            {"_id": 0, "status": 1}
+        )
+        prior_loans = await prior_loans_cursor.to_list(200)
+        application_data["platform_loan_count"] = len(prior_loans)
+        application_data["platform_ontime_rate"] = 1.0  # default perfect; refined once repayment tracking lands
+
+        logger.info(f"Running V2 credit scoring with data: {application_data}")
+
+        # Run V2 credit scoring engine
         score_result = calculate_credit_score(application_data, plaid_analysis, stripe_analysis)
-        
-        logger.info(f"Credit score calculated: {score_result['composite_score']} (Grade: {score_result['grade']})")
-        
-        # Save credit score
+
+        composite_score = score_result["score"]
+        grade = score_result["grade"]
+        apr_mid = score_result["apr_mid"]
+        apr_range = score_result.get("apr_range")
+        max_loan_amount = score_result["max_loan_amount"]
+        auto_reject = score_result["auto_reject"]
+        auto_reject_flags = score_result["auto_reject_flags"]
+        layer_scores = score_result["layer_scores"]
+        signal_breakdown = score_result["signal_breakdown"]
+        explanation = score_result["explanation"]
+        data_quality_score = score_result["data_quality_score"]
+        data_sources = score_result["data_sources"]
+        reserve_fund_contribution = score_result["reserve_fund_contribution"]
+
+        logger.info(f"V2 Score: {composite_score} (Grade: {grade}) APR: {apr_range}")
+
+        # Save credit score (V2 schema)
         credit_score_record = {
             "id": str(uuid.uuid4()),
             "borrower_id": user["sub"],
-            "composite_score": score_result["composite_score"],
-            "base_score": score_result.get("base_score", score_result["composite_score"]),
-            "quality_boost": score_result.get("quality_boost", 0),
-            "grade": score_result["grade"],
-            "suggested_apr": score_result["suggested_apr"],
-            "max_loan_amount": score_result["max_loan_amount"],
-            "signals": score_result["signals"],
-            "auto_reject_flags": score_result["auto_reject_flags"],
-            "data_quality": score_result.get("data_quality", {}),
+            "score": composite_score,
+            "grade": grade,
+            "apr_range": apr_range,
+            "apr_mid": apr_mid,
+            "max_loan_amount": max_loan_amount,
+            "auto_reject": auto_reject,
+            "auto_reject_flags": auto_reject_flags,
+            "layer_scores": layer_scores,
+            "signal_breakdown": signal_breakdown,
+            "explanation": explanation,
+            "data_quality_score": data_quality_score,
+            "data_sources": data_sources,
+            "reserve_fund_contribution": reserve_fund_contribution,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        
-        # Determine loan amount (min of requested and max allowed)
-        approved_amount = min(loan_amount, score_result["max_loan_amount"]) if score_result["grade"] != "Reject" else 0
+
+        # Determine approved loan amount (min of requested and max allowed)
+        approved_amount = min(loan_amount, max_loan_amount) if grade != "Reject" else 0
         token_price = 50.0
         total_tokens = int(approved_amount / token_price) if approved_amount > 0 else 0
-        
+
         loan = {
             "id": str(uuid.uuid4()),
             "borrower_id": user["sub"],
@@ -694,63 +727,113 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
             "loan_amount_requested": loan_amount,
             "loan_amount_approved": approved_amount,
             "loan_purpose": req.loan_purpose,
-            "status": "rejected" if score_result["grade"] == "Reject" else "pending",
-            "grade": score_result["grade"],
-            "interest_rate": score_result["suggested_apr"],
+            "personal_guarantee": bool(req.personal_guarantee),
+            "business_assets": float(req.business_assets or 0),
+            "bureau_score": float(req.bureau_score or 650),
+            "status": "rejected" if grade == "Reject" else "pending",
+            # V2 scoring payload persisted directly on loan for easy admin display
+            "credit_score": composite_score,
+            "grade": grade,
+            "apr_range": apr_range,
+            "apr_mid": apr_mid,
+            "interest_rate": apr_mid,  # backward compat
+            "max_loan_amount": max_loan_amount,
+            "auto_reject": auto_reject,
+            "auto_reject_flags": auto_reject_flags,
+            "layer_scores": layer_scores,
+            "signal_breakdown": signal_breakdown,
+            "explanation": explanation,
+            "data_quality_score": data_quality_score,
+            "data_sources": data_sources,
+            "reserve_fund_contribution": reserve_fund_contribution,
             "term_months": 12,
             "total_tokens": total_tokens,
             "tokens_sold": 0,
             "token_price": token_price,
             "credit_score_id": credit_score_record["id"],
+            "plaid_connected": bool(req.plaid_connected),
+            "stripe_connected": bool(req.stripe_connected),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "approved_at": None,
             "funded_at": None,
         }
-        
+
         credit_score_record["loan_id"] = loan["id"]
-        
+
         await db.credit_scores.insert_one(credit_score_record)
         await db.loans.insert_one(loan)
-        
-        logger.info(f"Loan application saved: {loan['id']} (Status: {loan['status']})")
-        
+
+        # ── RESERVE FUND (Investor Protection Fund) ──
+        # 3% of every approved loan is contributed to the global reserve fund
+        if grade != "Reject" and reserve_fund_contribution > 0:
+            await db.reserve_fund.update_one(
+                {"_id": "global"},
+                {
+                    "$inc": {
+                        "total_contributed": float(reserve_fund_contribution),
+                        "total_loans": 1,
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    "$set": {
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
+                upsert=True,
+            )
+
+        logger.info(f"Loan application saved: {loan['id']} (Status: {loan['status']}) | Reserve +${reserve_fund_contribution}")
+
         # ── EMAIL 1: Loan Application Received ──
         borrower_user = await db.users.find_one({"id": user["sub"]})
         borrower_email = borrower_user.get("email", "") if borrower_user else ""
         borrower_first = user.get("name", "").split()[0] if user.get("name") else "there"
-        send_loan_application_received(
-            to_email=borrower_email,
-            first_name=borrower_first,
-            loan_amount=loan_amount,
-            business_name=req.business_name,
-            application_id=loan["id"],
-            user_id=user["sub"],
-        )
+        try:
+            send_loan_application_received(
+                to_email=borrower_email,
+                first_name=borrower_first,
+                loan_amount=loan_amount,
+                business_name=req.business_name,
+                application_id=loan["id"],
+                user_id=user["sub"],
+            )
 
-        # ── EMAIL 2: Credit Score Ready ──
-        send_credit_score_ready(
-            to_email=borrower_email,
-            first_name=borrower_first,
-            business_name=req.business_name,
-            grade=score_result["grade"],
-            composite_score=score_result["composite_score"],
-            suggested_apr=score_result["suggested_apr"],
-            max_loan_amount=score_result["max_loan_amount"],
-            user_id=user["sub"],
-        )
+            # ── EMAIL 2: Credit Score Ready ──
+            send_credit_score_ready(
+                to_email=borrower_email,
+                first_name=borrower_first,
+                business_name=req.business_name,
+                grade=grade,
+                composite_score=composite_score,
+                suggested_apr=apr_mid,
+                max_loan_amount=max_loan_amount,
+                user_id=user["sub"],
+            )
+        except Exception as email_err:
+            logger.warning(f"Email send failed (non-fatal): {email_err}")
 
+        # Return full V2 payload to frontend
         return {
             "success": True,
             "loan_id": loan["id"],
             "status": loan["status"],
             "credit_score": {
                 "id": credit_score_record["id"],
-                "composite_score": score_result["composite_score"],
-                "grade": score_result["grade"],
-                "suggested_apr": score_result["suggested_apr"],
-                "max_loan_amount": score_result["max_loan_amount"],
-                "auto_reject_flags": score_result["auto_reject_flags"],
-                "signals": score_result["signals"],
+                "score": composite_score,
+                "grade": grade,
+                "apr_range": apr_range,
+                "apr_mid": apr_mid,
+                "max_loan_amount": max_loan_amount,
+                "approved_amount": approved_amount,
+                "auto_reject": auto_reject,
+                "auto_reject_flags": auto_reject_flags,
+                "layer_scores": layer_scores,
+                "signal_breakdown": signal_breakdown,
+                "explanation": explanation,
+                "data_quality_score": data_quality_score,
+                "data_sources": data_sources,
+                "reserve_fund_contribution": reserve_fund_contribution,
             }
         }
     
@@ -1410,11 +1493,47 @@ async def get_admin_analytics(request: Request):
     # Grade distribution
     grade_dist = {"A": 0, "B": 0, "C": 0, "Reject": 0}
     all_graded = await db.loans.find({}, {"grade": 1}).to_list(1000)
-    for l in all_graded:
-        g = l.get("grade", "")
+    for lo in all_graded:
+        g = lo.get("grade", "")
         if g in grade_dist:
             grade_dist[g] += 1
-    
+
+    # ── Reserve Fund (Investor Protection Fund) ──
+    reserve_doc = await db.reserve_fund.find_one({"_id": "global"}) or {}
+    total_contributed = float(reserve_doc.get("total_contributed", 0) or 0)
+    reserve_loan_count = int(reserve_doc.get("total_loans", 0) or 0)
+
+    # Compute exposure: sum of outstanding principal on active loans
+    active_loans = await db.loans.find(
+        {"status": {"$in": ["approved", "funded", "repaying"]}}, {"_id": 0}
+    ).to_list(2000)
+    outstanding_principal = sum(float(ln.get("loan_amount_approved", 0) or 0) for ln in active_loans)
+    coverage_ratio = round((total_contributed / outstanding_principal * 100), 2) if outstanding_principal > 0 else 0.0
+
+    # ── Credit Model Performance ──
+    all_scored = await db.loans.find(
+        {"credit_score": {"$exists": True}},
+        {"_id": 0, "credit_score": 1, "grade": 1, "status": 1, "data_quality_score": 1, "apr_mid": 1}
+    ).to_list(2000)
+
+    avg_score = round(sum(ln.get("credit_score", 0) or 0 for ln in all_scored) / len(all_scored), 1) if all_scored else 0
+    avg_quality = round(sum(ln.get("data_quality_score", 0) or 0 for ln in all_scored) / len(all_scored), 1) if all_scored else 0
+    avg_apr = round(sum(ln.get("apr_mid", 0) or 0 for ln in all_scored if ln.get("grade") != "Reject") / max(1, sum(1 for ln in all_scored if ln.get("grade") != "Reject")), 2) if all_scored else 0
+
+    # Default rate by grade (model calibration)
+    default_by_grade = {"A": {"total": 0, "defaulted": 0}, "B": {"total": 0, "defaulted": 0}, "C": {"total": 0, "defaulted": 0}}
+    for ln in all_scored:
+        g = ln.get("grade", "")
+        if g in default_by_grade:
+            default_by_grade[g]["total"] += 1
+            if ln.get("status") == "defaulted":
+                default_by_grade[g]["defaulted"] += 1
+
+    default_rate_by_grade = {
+        g: round((v["defaulted"] / v["total"] * 100), 2) if v["total"] > 0 else 0.0
+        for g, v in default_by_grade.items()
+    }
+
     return {
         "analytics": {
             "total_loans": total_loans,
@@ -1430,6 +1549,18 @@ async def get_admin_analytics(request: Request):
             "total_investor_capital": total_investor_capital,
             "default_rate": default_rate,
             "grade_distribution": grade_dist,
+            "reserve_fund": {
+                "total_contributed": round(total_contributed, 2),
+                "loans_contributing": reserve_loan_count,
+                "outstanding_principal": round(outstanding_principal, 2),
+                "coverage_ratio_pct": coverage_ratio,
+            },
+            "credit_model": {
+                "avg_composite_score": avg_score,
+                "avg_data_quality": avg_quality,
+                "avg_apr": avg_apr,
+                "default_rate_by_grade": default_rate_by_grade,
+            },
         }
     }
 
