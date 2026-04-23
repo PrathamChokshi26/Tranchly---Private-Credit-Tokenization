@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import GradeBadge from '../../components/GradeBadge';
 import { CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp, Shield, TrendingUp, Zap, Info } from 'lucide-react';
@@ -33,6 +34,7 @@ const LayerMini = ({ label, score, weight, icon: Icon, colorText, colorBar }) =>
 
 export default function ApplicationsQueue() {
   const { api } = useAuth();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
@@ -260,6 +262,10 @@ export default function ApplicationsQueue() {
 
                     {/* Actions */}
                     <div className="flex gap-3 pt-1">
+                      <button data-testid={`btn-open-review-${app.id}`} onClick={() => navigate(`/admin/applications/${app.id}`)}
+                        className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-semibold hover:bg-purple-700 flex items-center justify-center gap-2">
+                        Open Full Review
+                      </button>
                       <button data-testid={`btn-approve-${app.id}`} onClick={() => handleAction(app.id, 'approve')} disabled={actionLoading === app.id}
                         className="flex-1 bg-emerald-500 text-white py-2.5 rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50 flex items-center justify-center gap-2">
                         <CheckCircle2 size={16} /> Approve Loan

@@ -1342,8 +1342,43 @@ async def reject_loan(loan_id: str, request: Request):
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     
-    await db.loans.update_one({"id": loan_id}, {"$set": {"status": "rejected"}})
+    # Optional override note
+    note = None
+    try:
+        body = await request.json()
+        note = (body or {}).get("note")
+    except Exception:
+        note = None
+    
+    update = {"status": "rejected"}
+    if note:
+        update["admin_note"] = note
+    await db.loans.update_one({"id": loan_id}, {"$set": update})
     return {"success": True, "message": "Loan rejected"}
+
+@api_router.post("/admin/loans/{loan_id}/request-info")
+async def request_more_info(loan_id: str, request: Request):
+    """Admin requests more info from borrower before deciding."""
+    user = await get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    loan = await db.loans.find_one({"id": loan_id})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    
+    note = None
+    try:
+        body = await request.json()
+        note = (body or {}).get("note")
+    except Exception:
+        note = None
+    
+    update = {"status": "info_requested"}
+    if note:
+        update["admin_note"] = note
+    await db.loans.update_one({"id": loan_id}, {"$set": update})
+    return {"success": True, "message": "Information requested from borrower"}
 
 @api_router.post("/admin/simulate-repayment")
 async def simulate_repayment(req: SimulateRepaymentRequest, request: Request):
@@ -1534,6 +1569,27 @@ async def get_admin_analytics(request: Request):
         for g, v in default_by_grade.items()
     }
 
+    # ── Data source adoption (% Plaid / % Stripe / % Manual) ──
+    total_apps = len(all_scored)
+    plaid_count = sum(1 for ln in all_scored if (ln.get("data_sources") or {}).get("plaid_connected"))
+    stripe_count = sum(1 for ln in all_scored if (ln.get("data_sources") or {}).get("stripe_connected"))
+    # If we stored data_sources on the loan doc, use that. Else infer from plaid/stripe_connected flags.
+    if total_apps > 0 and plaid_count == 0 and stripe_count == 0:
+        loans_for_sources = await db.loans.find({}, {"_id": 0, "plaid_connected": 1, "stripe_connected": 1}).to_list(2000)
+        total_apps_src = len(loans_for_sources) or 1
+        plaid_count = sum(1 for ln in loans_for_sources if ln.get("plaid_connected"))
+        stripe_count = sum(1 for ln in loans_for_sources if ln.get("stripe_connected"))
+        manual_count = sum(1 for ln in loans_for_sources if not ln.get("plaid_connected") and not ln.get("stripe_connected"))
+    else:
+        total_apps_src = total_apps or 1
+        manual_count = sum(1 for ln in all_scored if not (ln.get("data_sources") or {}).get("plaid_connected") and not (ln.get("data_sources") or {}).get("stripe_connected"))
+
+    data_source_adoption = {
+        "plaid_pct": round(plaid_count / total_apps_src * 100, 1),
+        "stripe_pct": round(stripe_count / total_apps_src * 100, 1),
+        "manual_pct": round(manual_count / total_apps_src * 100, 1),
+    }
+
     return {
         "analytics": {
             "total_loans": total_loans,
@@ -1561,6 +1617,7 @@ async def get_admin_analytics(request: Request):
                 "avg_apr": avg_apr,
                 "default_rate_by_grade": default_rate_by_grade,
             },
+            "data_source_adoption": data_source_adoption,
         }
     }
 

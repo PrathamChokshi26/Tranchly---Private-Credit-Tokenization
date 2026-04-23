@@ -13,6 +13,7 @@ import VerifyRejected from './pages/VerifyRejected';
 // Borrower
 import BorrowerDashboard from './pages/borrower/BorrowerDashboard';
 import LoanApplication from './pages/borrower/LoanApplication';
+import LoanResults from './pages/borrower/LoanResults';
 import LoanTracker from './pages/borrower/LoanTracker';
 import CapitalPassport from './pages/borrower/CapitalPassport';
 
@@ -26,6 +27,7 @@ import YieldHistory from './pages/investor/YieldHistory';
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ApplicationsQueue from './pages/admin/ApplicationsQueue';
+import LoanReview from './pages/admin/LoanReview';
 import Analytics from './pages/admin/Analytics';
 import AllLoans from './pages/admin/AllLoans';
 import AdminUsers from './pages/admin/AdminUsers';
@@ -70,6 +72,7 @@ function AppRoutes() {
       {/* Borrower */}
       <Route path="/borrower" element={<ProtectedRoute roles={['borrower']}><BorrowerDashboard /></ProtectedRoute>} />
       <Route path="/borrower/apply" element={<ProtectedRoute roles={['borrower']}><LoanApplication /></ProtectedRoute>} />
+      <Route path="/borrower/results" element={<ProtectedRoute roles={['borrower']}><LoanResults /></ProtectedRoute>} />
       <Route path="/borrower/loans" element={<ProtectedRoute roles={['borrower']}><BorrowerDashboard /></ProtectedRoute>} />
       <Route path="/borrower/loans/:loanId" element={<ProtectedRoute roles={['borrower']}><LoanTracker /></ProtectedRoute>} />
       <Route path="/borrower/passport" element={<ProtectedRoute roles={['borrower']}><CapitalPassport /></ProtectedRoute>} />
@@ -84,6 +87,7 @@ function AppRoutes() {
       {/* Admin */}
       <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
       <Route path="/admin/applications" element={<ProtectedRoute roles={['admin']}><ApplicationsQueue /></ProtectedRoute>} />
+      <Route path="/admin/applications/:loanId" element={<ProtectedRoute roles={['admin']}><LoanReview /></ProtectedRoute>} />
       <Route path="/admin/loans" element={<ProtectedRoute roles={['admin']}><AllLoans /></ProtectedRoute>} />
       <Route path="/admin/users" element={<ProtectedRoute roles={['admin']}><AdminUsers /></ProtectedRoute>} />
       <Route path="/admin/analytics" element={<ProtectedRoute roles={['admin']}><Analytics /></ProtectedRoute>} />

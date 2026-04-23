@@ -1,0 +1,33 @@
+{
+  "summary": "Tranchly V2 Parts 3/4/5 rollout verified end-to-end. Backend: 20/20 pytest PASS (13 baseline + 7 new in test_v2_admin_review.py) covering POST /api/admin/loans/{id}/request-info (status + admin_note persistence, with + without note), POST /api/admin/loans/{id}/reject with optional note, GET /api/loans/{id} schema used by LoanReview, and GET /api/admin/analytics.data_source_adoption (plaid_pct/stripe_pct/manual_pct present, in 0-100 range, non-zero sum). Frontend: borrower apply -> redirects to /borrower/results, all 8 result cards render (result-grade-card, result-composite-score, result-apr-range, layer-scores-card, explanation-card, data-quality-card, signal-breakdown-card, reserve-fund-card) for Grade B happy path. Direct navigation to /borrower/results without state correctly redirects to /borrower/apply. Admin LoanReview page at /admin/applications/:loanId renders admin-loan-review-page with scoring-summary-card + review-composite-score + 3 layer bars, signals-table-card with 15 signal rows and source badges (Manual gray, Platform teal distinct), explainability-card with positive/negative/improvements panels, review-reserve-fund, and all 3 action buttons + override-note-textarea. Request-info flow: note submitted -> backend status=info_requested + admin_note persisted + all action buttons correctly disabled on reload. Analytics 3 new cards all present: ipf-total-card ($30,300 / 23 loans / 2.62% coverage), grade-donut-card (recharts donut with 13 paths including inner ring), data-source-adoption-card (adoption-plaid/stripe/manual labels rendered).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v2_credit_scoring.py",
+    "/app/backend/tests/test_v2_admin_review.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/pytest_results_part5.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LoanResults.jsx redirect-on-no-state works only when the tab didn't previously populate history.state via SPA navigation; a real browser F5/reload preserves history.state, so the 'refresh redirects to /apply' behaviour is partial. Direct URL navigation (the scenario under test) does work. If a stricter reload-protection is required, also gate on a sessionStorage flag cleared on mount of /apply.",
+    "ApplicationsQueue `btn-open-review-{id}` is only rendered inside the expanded row (isExpanded). Tests must click the row header first. Acceptable, but if the PRD wants this discoverable at glance, consider exposing it on the collapsed header as well.",
+    "LoanReview.jsx SOURCE_FOR_SIGNAL maps business_assets -> Manual; Plaid/Stripe/Platform coverage in the 15-signal table is therefore driven by data_sources.plaid_connected/stripe_connected flags on the saved credit_score doc. With no Plaid/Stripe in the test data, only Manual + Platform badges show live — the colour distinction (Plaid green / Stripe purple) is defined in SOURCE_COLORS and appears correct but is not rendered in the test flows. Consider adding a seeded Plaid-connected test loan so all 4 badge colours render in demos.",
+    "server.py is still ~1700 lines — consider splitting into routers for maintainability (flagged in iteration_1, unresolved).",
+    "LoanApplication Step 1 Next button data-testid is `btn-step-1-next`, but the review request documented it as `btn-next-step`. Tests must use `btn-step-1-next`. Either update PRD or align testid for clarity."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v2_admin_review.py"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% (all new Part 4/5 testids render, borrower + admin review flows pass end-to-end)"},
+  "test_credentials": "borrower@test.com / test123 and admin@test.com / test123 (from /app/memory/test_credentials.md) — both valid.",
+  "seed_data_creation": "~8 TEST_V2_* pending loans created across backend pytest + UI flows. 2 of them transitioned to info_requested, 1 to rejected via new endpoints. Reserve fund incremented from $28,800 -> $30,300 across happy-path runs. No cleanup performed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suite = pytest /app/backend/tests/ -v (20 tests across test_v2_credit_scoring.py + test_v2_admin_review.py). For admin UI tests, `btn-open-review-{id}` is only in the expanded row — click the app header first (any element matching .cursor-pointer inside the row, or data-testid=app-row-{id}). LoanReview page URL: /admin/applications/{loanId}. Step 1 Next button is `btn-step-1-next`. Analytics data_source_adoption may show 100% Manual when no Plaid/Stripe-connected loans exist in DB.",
+  "rca of the issue": "No unresolved bugs. All Parts 3/4/5 ship green."
+}
