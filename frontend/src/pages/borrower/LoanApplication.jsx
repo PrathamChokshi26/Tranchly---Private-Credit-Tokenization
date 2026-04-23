@@ -30,17 +30,23 @@ export default function LoanApplication() {
 
   // Handle Plaid success - auto-populate form fields
   const handlePlaidSuccess = (data) => {
-    console.log('[LoanApp] Plaid connected, data:', data);
+    console.log('[LoanApp] Plaid connected successfully!');
+    console.log('[LoanApp] Plaid data received:', data);
+    
     setPlaidConnected(true);
     setPlaidData(data);
     
     // Auto-populate form from Plaid data
-    setForm(prev => ({
-      ...prev,
-      bank_balance: data.bank_balance || prev.bank_balance,
-      monthly_revenue: data.avg_monthly_revenue || prev.monthly_revenue,
-      revenue_trend: data.revenue_trend !== undefined ? data.revenue_trend : prev.revenue_trend,
-    }));
+    setForm(prev => {
+      const updated = {
+        ...prev,
+        bank_balance: data.bank_balance || prev.bank_balance,
+        monthly_revenue: data.avg_monthly_revenue || prev.monthly_revenue,
+        revenue_trend: data.revenue_trend !== undefined ? data.revenue_trend : prev.revenue_trend,
+      };
+      console.log('[LoanApp] Form updated with Plaid data:', updated);
+      return updated;
+    });
   };
 
   // Handle Stripe success - auto-populate form fields
@@ -60,22 +66,38 @@ export default function LoanApplication() {
   };
 
   const validateForm = () => {
+    console.log('[LoanApp] Validating form...', {
+      plaidConnected,
+      stripeConnected,
+      plaidData,
+      form,
+    });
+    
     const errors = [];
     
-    // Step 1 validations
+    // Only validate Step 1 fields (these should already be filled from Step 1)
     if (!form.business_name?.trim()) errors.push('Business Name is required');
     if (!form.years_operating || parseFloat(form.years_operating) <= 0) errors.push('Years Operating must be greater than 0');
-    if (!form.monthly_revenue || parseFloat(form.monthly_revenue) <= 0) {
-      if (plaidConnected || stripeConnected) {
-        errors.push('Monthly Revenue could not be determined from connected accounts. Please enter manually.');
-      } else {
-        errors.push('Monthly Revenue is required');
-      }
-    }
     if (!form.loan_amount_requested || parseFloat(form.loan_amount_requested) < 20000) {
       errors.push('Loan Amount must be at least $20,000');
     }
     if (!form.loan_purpose?.trim()) errors.push('Loan Purpose is required');
+    
+    // For Step 2: Either Plaid connected OR manual data entered
+    // If Plaid connected, no additional validation needed
+    if (!plaidConnected) {
+      // Only require manual data if Plaid is NOT connected
+      if (!form.monthly_revenue || parseFloat(form.monthly_revenue) <= 0) {
+        errors.push('Monthly Revenue is required (or connect Plaid)');
+      }
+    }
+    
+    // Stripe is completely optional - never validate it
+    
+    console.log('[LoanApp] Validation result:', {
+      valid: errors.length === 0,
+      errors,
+    });
     
     setValidationErrors(errors);
     return errors.length === 0;
@@ -84,35 +106,49 @@ export default function LoanApplication() {
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     
+    console.log('[LoanApp] Submit clicked', {
+      plaidConnected,
+      stripeConnected,
+      plaidData,
+      stripeData,
+      formState: form,
+    });
+    
     setError('');
     setValidationErrors([]);
     
     // Validate form
     if (!validateForm()) {
+      console.error('[LoanApp] Validation failed, not submitting');
       setError('Please fix the validation errors below');
       return;
     }
     
+    console.log('[LoanApp] Validation passed, preparing to submit...');
+    
     setLoading(true);
     try {
-      const data = {
+      // Use Plaid data if connected, otherwise use form data
+      const submissionData = {
         ...form,
         years_operating: parseFloat(form.years_operating),
-        monthly_revenue: parseFloat(form.monthly_revenue),
+        monthly_revenue: plaidData?.avg_monthly_revenue || parseFloat(form.monthly_revenue || 0),
         loan_amount_requested: parseFloat(form.loan_amount_requested),
-        bank_balance: form.bank_balance ? parseFloat(form.bank_balance) : null,
+        bank_balance: plaidData?.bank_balance || (form.bank_balance ? parseFloat(form.bank_balance) : null),
         monthly_expenses: form.monthly_expenses ? parseFloat(form.monthly_expenses) : null,
         existing_debt: parseFloat(form.existing_debt || 0),
         existing_loans: parseInt(form.existing_loans || 0),
         bureau_score: parseInt(form.bureau_score || 680),
-        revenue_trend: parseFloat(form.revenue_trend || 0.05),
-        customer_retention: parseFloat(form.customer_retention || 0.80),
+        revenue_trend: plaidData?.revenue_trend || stripeData?.revenue_trend || parseFloat(form.revenue_trend || 0.05),
+        customer_retention: stripeData?.revenue_consistency || parseFloat(form.customer_retention || 0.80),
         payroll_consistency: parseFloat(form.payroll_consistency || 0.85),
         industry: form.industry.toLowerCase().replace(/[& ]+/g, '_'),
       };
       
-      console.log('[LoanApp] Submitting application:', data);
-      const res = await api.post('/api/loans/apply', data);
+      console.log('[LoanApp] Submitting application with data:', submissionData);
+      const res = await api.post('/api/loans/apply', submissionData);
+      console.log('[LoanApp] Application submitted successfully:', res.data);
+      
       setResult(res.data);
       setStep(3);
     } catch (err) {
@@ -305,9 +341,12 @@ export default function LoanApplication() {
               Back
             </button>
             <button
-              onClick={handleSubmit}
+              onClick={(e) => {
+                console.log('[LoanApp] Submit button clicked!');
+                handleSubmit(e);
+              }}
               disabled={loading}
-              className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+              className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Analyzing...' : 'Submit Application'}
               {!loading && <ArrowRight size={16} />}
