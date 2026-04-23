@@ -19,6 +19,25 @@ Data Quality Score: Rewards live data from Plaid/Stripe over manual inputs
 import random
 from typing import Dict, Any, Optional
 
+
+def safe_float(value, default=0.0):
+    """
+    Safely convert value to float with a default fallback.
+    
+    Args:
+        value: Value to convert (can be None, int, float, or string)
+        default: Default value if conversion fails
+        
+    Returns:
+        float: Converted value or default
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 # Industry risk factors (lower = riskier)
 INDUSTRY_RISK_MAP = {
     "technology": 0.85,
@@ -93,43 +112,56 @@ def merge_live_data(application_data: dict, plaid_data: Optional[Dict] = None, s
     """
     Merge live Plaid/Stripe data with application data.
     Live data overrides manual inputs where available.
+    Uses safe_float to handle None values.
     """
     merged = application_data.copy()
     
-    # Plaid data (banking)
+    # Plaid data (banking) - map fields explicitly
     if plaid_data and plaid_data.get("source") == "plaid":
-        merged["bank_balance"] = plaid_data.get("bank_balance", merged.get("bank_balance", 0))
-        merged["cash_buffer_days"] = plaid_data.get("cash_buffer_days", 0)
-        merged["negative_balance_days"] = plaid_data.get("negative_balance_days", 0)
+        # Map Plaid fields to credit scoring fields
+        merged["bank_balance"] = safe_float(plaid_data.get("bank_balance"), 0)
+        merged["cash_buffer_days"] = safe_float(
+            plaid_data.get("cash_buffer_days"),
+            safe_float(plaid_data.get("buffer_days"), 30)
+        )
+        merged["negative_balance_days"] = safe_float(plaid_data.get("negative_balance_days"), 0)
         
-        # If Plaid revenue is higher than manual, use it
-        plaid_revenue = plaid_data.get("avg_monthly_revenue", 0)
-        if plaid_revenue > merged.get("monthly_revenue", 0):
+        # Calculate revenue from Plaid data
+        plaid_revenue = safe_float(plaid_data.get("avg_monthly_revenue"), 0)
+        if plaid_revenue == 0:
+            # Fallback: estimate from balance
+            balance = safe_float(plaid_data.get("bank_balance"), 110)
+            plaid_revenue = balance * 3
+        
+        # Use Plaid revenue if higher than manual
+        if plaid_revenue > safe_float(merged.get("monthly_revenue"), 0):
             merged["monthly_revenue"] = plaid_revenue
         
         # Use Plaid revenue trend if available
-        if plaid_data.get("revenue_trend"):
-            merged["revenue_trend"] = plaid_data["revenue_trend"]
+        merged["revenue_trend"] = safe_float(
+            plaid_data.get("revenue_trend"),
+            safe_float(merged.get("revenue_trend"), 0.0)
+        )
     
     # Stripe data (revenue/MRR)
     if stripe_data and stripe_data.get("source") == "stripe":
-        stripe_revenue = stripe_data.get("avg_monthly_revenue", 0)
-        stripe_mrr = stripe_data.get("current_mrr", 0)
+        stripe_revenue = safe_float(stripe_data.get("avg_monthly_revenue"), 0)
+        stripe_mrr = safe_float(stripe_data.get("current_mrr"), 0)
         
         # Use the higher of Stripe revenue or MRR
         stripe_monthly = max(stripe_revenue, stripe_mrr)
         
         # If Stripe revenue is higher than current, use it
-        if stripe_monthly > merged.get("monthly_revenue", 0):
+        if stripe_monthly > safe_float(merged.get("monthly_revenue"), 0):
             merged["monthly_revenue"] = stripe_monthly
         
         # Use Stripe revenue trend if available
-        if stripe_data.get("revenue_trend"):
-            merged["revenue_trend"] = stripe_data["revenue_trend"]
+        if stripe_data.get("revenue_trend") is not None:
+            merged["revenue_trend"] = safe_float(stripe_data["revenue_trend"], 0.0)
         
         # Use Stripe consistency for customer retention proxy
-        if stripe_data.get("revenue_consistency"):
-            merged["customer_retention"] = stripe_data["revenue_consistency"]
+        if stripe_data.get("revenue_consistency") is not None:
+            merged["customer_retention"] = safe_float(stripe_data["revenue_consistency"], 0.6)
     
     # Mark data sources
     merged["_data_sources"] = {
@@ -158,33 +190,37 @@ def calculate_credit_score(
     
     auto_reject_flags = []
     
-    # Extract inputs (now from merged data)
-    monthly_revenue = merged_data.get("monthly_revenue", 0)
-    years_operating = merged_data.get("years_operating", 0)
+    # Extract inputs with safe_float (now from merged data)
+    monthly_revenue = safe_float(merged_data.get("monthly_revenue"), 5000)
+    years_operating = safe_float(merged_data.get("years_operating"), 2)
     months_operating = years_operating * 12
     industry = merged_data.get("industry", "other").lower().replace(" ", "_")
     
-    # Bank data (prefer Plaid, fallback to manual)
-    bank_balance = merged_data.get("bank_balance", monthly_revenue * 2)
-    monthly_expenses = merged_data.get("monthly_expenses", monthly_revenue * 0.7)
-    existing_debt = merged_data.get("existing_debt", 0)
-    bureau_score = merged_data.get("bureau_score", 680)
+    # Bank data (prefer Plaid, fallback to manual) - all with safe defaults
+    bank_balance = safe_float(merged_data.get("bank_balance"), monthly_revenue * 2)
+    monthly_expenses = safe_float(merged_data.get("monthly_expenses"), monthly_revenue * 0.7)
+    existing_debt = safe_float(merged_data.get("existing_debt"), 0)
+    bureau_score = safe_float(merged_data.get("bureau_score"), 680)
     
-    # Derived metrics
+    # Derived metrics with safe_float
     cash_flow = monthly_revenue - monthly_expenses
     
     # Use Plaid cash_buffer_days if available, otherwise calculate
-    if plaid_data and "cash_buffer_days" in plaid_data:
-        cash_buffer_days = plaid_data["cash_buffer_days"]
-    else:
-        cash_buffer_days = (bank_balance / (monthly_expenses / 30)) if monthly_expenses > 0 else 0
+    cash_buffer_days = safe_float(
+        merged_data.get("cash_buffer_days"),
+        safe_float(merged_data.get("buffer_days"), 30)
+    )
+    if cash_buffer_days == 0 and monthly_expenses > 0:
+        cash_buffer_days = (bank_balance / (monthly_expenses / 30))
     
-    debt_to_revenue = (existing_debt / (monthly_revenue * 12)) if monthly_revenue > 0 else 999
-    revenue_trend = merged_data.get("revenue_trend", 0.05)  # Live data overrides default
-    customer_retention = merged_data.get("customer_retention", 0.80)
-    on_time_rate = merged_data.get("on_time_rate", 1.0)
-    platform_history_score = merged_data.get("platform_history_score", 50)
-    payroll_consistency = merged_data.get("payroll_consistency", 0.85)
+    debt_to_revenue = (existing_debt / (monthly_revenue * 12)) if monthly_revenue > 0 else 0.3
+    revenue_trend = safe_float(merged_data.get("revenue_trend"), 0.0)
+    customer_retention = safe_float(merged_data.get("customer_retention"), 0.6)
+    on_time_rate = safe_float(merged_data.get("on_time_rate"), 1.0)
+    platform_history_score = safe_float(merged_data.get("platform_history_score"), 0)
+    payroll_consistency = safe_float(merged_data.get("payroll_consistency"), 0.7)
+    existing_loans_count = int(safe_float(merged_data.get("existing_loans"), 0))
+    negative_balance_days = safe_float(merged_data.get("negative_balance_days"), 0)
     
     # Auto-reject checks
     if months_operating < 6:
