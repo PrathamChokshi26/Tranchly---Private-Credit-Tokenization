@@ -47,10 +47,18 @@ Build "Tranchly" (formerly Slice), a private credit tokenization platform connec
 - Rewrote `POST /api/loans/apply` to use V2 engine, persist full payload to `loans` + `credit_scores` collections, and upsert `reserve_fund` global doc
 - Extended `LoanApplicationRequest` with `personal_guarantee`, `business_assets`, `bureau_score`
 - Added `reserve_fund` and `credit_model` blocks to `GET /api/admin/analytics`
-- Rebuilt borrower Step 1 (new V2 fields) and Step 3 (grade/layer/explanation/data-quality/signal/reserve UI)
+- Rebuilt borrower Step 1 (new V2 fields)
 - Rebuilt admin ApplicationsQueue (V2 expanded view with source badges)
-- Extended admin Analytics page with Investor Protection Fund + Credit Model Performance cards
 - Added `/app/backend/tests/test_v2_credit_scoring.py` (13 tests, all green)
+
+### 2026-02 — V2 Parts 3/4/5 Refactor ✅
+- **Part 3**: Step 1 already has `personal_guarantee` checkbox + `business_assets` input (data-testids: `checkbox-personal-guarantee`, `input-business-assets`, `input-bureau-score`)
+- **Part 4**: Created standalone `/app/frontend/src/pages/borrower/LoanResults.jsx`. Extracted full V2 result UI (grade card, layer bars, explanation, data quality, signal breakdown, reserve fund). Wired route `/borrower/results` in `App.js`. `LoanApplication.jsx` now `navigate('/borrower/results', { state: { result } })` on submit; direct page access without state redirects back to /borrower/apply.
+- **Part 5**: Created standalone `/app/frontend/src/pages/admin/LoanReview.jsx` with scoring summary + 3 layer bars, 15-signal table with 4-colour source badges (Plaid=green / Stripe=purple / Manual=gray / Platform=teal), explainability panels, reserve fund contribution, and admin actions (Approve / Reject / Request More Info + override note textarea). Wired route `/admin/applications/:loanId`. ApplicationsQueue links to it via `Open Full Review`.
+- Added backend endpoint `POST /api/admin/loans/{loan_id}/request-info` (status=info_requested, persists admin_note). Reject endpoint now accepts optional `note`.
+- Added `analytics.data_source_adoption` (plaid_pct/stripe_pct/manual_pct) to `GET /api/admin/analytics`.
+- Analytics page now has 3 new metric cards: IPF total balance, Grade distribution **donut**, Data source adoption **horizontal bars**.
+- `/app/backend/tests/test_v2_admin_review.py` added (7 new tests, 20/20 overall PASS).
 
 ### Previously
 - Plaid button stuck on "Initializing" → fixed
