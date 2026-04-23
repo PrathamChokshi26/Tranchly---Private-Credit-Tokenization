@@ -20,7 +20,7 @@ import secrets
 import httpx
 
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role
-from credit_engine import calculate_credit_score
+from services.credit_scoring import calculate_credit_score  # V2 scoring engine
 from mock_blockchain import (
     generate_tx_hash, generate_wallet_address,
     create_mint_transaction, create_buy_transaction,
@@ -67,45 +67,58 @@ class PlaidDataInput(BaseModel):
     institution_name: Optional[str] = None
     account_last_four: Optional[str] = None
     balance: Optional[float] = None
+    bank_balance: Optional[float] = None
     buffer_days: Optional[int] = None
+    cash_buffer_days: Optional[int] = None
     transactions_count: Optional[int] = None
     revenue_trend: Optional[float] = None
     avg_monthly_revenue: Optional[float] = None
     negative_balance_days: Optional[int] = 0
+    nsf_count: Optional[int] = 0
+    payroll_stability: Optional[bool] = False
+    existing_loan_payments: Optional[float] = 0
 
 class StripeDataInput(BaseModel):
     business_name: Optional[str] = None
     avg_monthly_revenue: Optional[float] = None
     current_mrr: Optional[float] = None
+    mrr: Optional[float] = None
     revenue_trend: Optional[float] = None
     revenue_consistency: Optional[float] = None
+    refund_rate: Optional[float] = None
+    revenue_concentration: Optional[float] = None
 
 class LoanApplicationRequest(BaseModel):
+    # Step 1 - Business Info
     business_name: str
     industry: str
     years_operating: float
-    loan_amount_requested: Optional[float] = None  # Made optional, will use loan_amount if not provided
-    loan_amount: Optional[float] = None  # Alternative field name
+    loan_amount_requested: Optional[float] = None
+    loan_amount: Optional[float] = None
     loan_purpose: str
+    personal_guarantee: bool = False
+    business_assets: float = 0.0
+    bureau_score: float = 650.0
     
-    # Plaid integration
+    # Step 2 - Data connections
     plaid_connected: Optional[bool] = False
     plaid_data: Optional[PlaidDataInput] = None
-    
-    # Stripe integration  
     stripe_connected: Optional[bool] = False
     stripe_data: Optional[StripeDataInput] = None
     
-    # Manual financial data (optional if Plaid connected)
+    # Manual fallback fields (used if Plaid not connected)
     monthly_revenue: Optional[float] = None
+    avg_monthly_revenue: Optional[float] = None
+    revenue_trend: Optional[float] = None
+    cash_buffer_days: Optional[float] = None
     bank_balance: Optional[float] = None
     monthly_expenses: Optional[float] = None
     existing_debt: Optional[float] = 0
     existing_loans: Optional[int] = 0
-    bureau_score: Optional[int] = 680
-    revenue_trend: Optional[float] = 0.05
-    customer_retention: Optional[float] = 0.80
-    payroll_consistency: Optional[float] = 0.85
+    debt_to_revenue: Optional[float] = None
+    payroll_consistency: Optional[float] = None
+    customer_retention: Optional[float] = None
+    industry_risk: Optional[float] = None
 
 class InvestRequest(BaseModel):
     loan_id: str
