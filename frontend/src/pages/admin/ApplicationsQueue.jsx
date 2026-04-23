@@ -169,7 +169,7 @@ export default function ApplicationsQueue() {
                     {/* 15-Signal Table */}
                     {Object.keys(signalBreakdown).length > 0 && (
                       <div data-testid="admin-signal-breakdown">
-                        <p className="text-sm font-semibold text-gray-700 mb-2">15-Signal Breakdown</p>
+                        <p className="text-sm font-semibold text-gray-700 mb-2">Signal Breakdown</p>
                         <div className="bg-white rounded-lg border overflow-hidden">
                           <table className="w-full text-xs">
                             <thead className="bg-gray-100">
