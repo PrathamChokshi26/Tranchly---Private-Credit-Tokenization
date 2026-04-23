@@ -63,13 +63,41 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+class PlaidDataInput(BaseModel):
+    institution_name: Optional[str] = None
+    account_last_four: Optional[str] = None
+    balance: Optional[float] = None
+    buffer_days: Optional[int] = None
+    transactions_count: Optional[int] = None
+    revenue_trend: Optional[float] = None
+    avg_monthly_revenue: Optional[float] = None
+    negative_balance_days: Optional[int] = 0
+
+class StripeDataInput(BaseModel):
+    business_name: Optional[str] = None
+    avg_monthly_revenue: Optional[float] = None
+    current_mrr: Optional[float] = None
+    revenue_trend: Optional[float] = None
+    revenue_consistency: Optional[float] = None
+
 class LoanApplicationRequest(BaseModel):
     business_name: str
     industry: str
     years_operating: float
-    monthly_revenue: float
-    loan_amount_requested: float
+    loan_amount_requested: Optional[float] = None  # Made optional, will use loan_amount if not provided
+    loan_amount: Optional[float] = None  # Alternative field name
     loan_purpose: str
+    
+    # Plaid integration
+    plaid_connected: Optional[bool] = False
+    plaid_data: Optional[PlaidDataInput] = None
+    
+    # Stripe integration  
+    stripe_connected: Optional[bool] = False
+    stripe_data: Optional[StripeDataInput] = None
+    
+    # Manual financial data (optional if Plaid connected)
+    monthly_revenue: Optional[float] = None
     bank_balance: Optional[float] = None
     monthly_expenses: Optional[float] = None
     existing_debt: Optional[float] = 0
@@ -515,110 +543,209 @@ async def analyze_stripe_data(request: Request):
 
 @api_router.post("/loans/apply")
 async def apply_for_loan(req: LoanApplicationRequest, request: Request):
+    """Apply for a loan with Plaid/Stripe integration."""
     user = await get_current_user(request)
     if user["role"] != "borrower":
         raise HTTPException(status_code=403, detail="Only borrowers can apply for loans")
     
-    if req.loan_amount_requested < 20000 or req.loan_amount_requested > 500000:
-        raise HTTPException(status_code=400, detail="Loan amount must be between $20,000 and $500,000")
-    
-    # Retrieve live data if available
-    borrower = await db.users.find_one({"id": user["sub"]}, {"_id": 0})
-    plaid_data = borrower.get("plaid_analysis") if borrower else None
-    stripe_data = borrower.get("stripe_analysis") if borrower else None
-    
-    # Run credit scoring with live data
-    score_result = calculate_credit_score(req.model_dump(), plaid_data, stripe_data)
-    
-    # Save credit score
-    credit_score_record = {
-        "id": str(uuid.uuid4()),
-        "borrower_id": user["sub"],
-        "composite_score": score_result["composite_score"],
-        "base_score": score_result.get("base_score", score_result["composite_score"]),
-        "quality_boost": score_result.get("quality_boost", 0),
-        "grade": score_result["grade"],
-        "suggested_apr": score_result["suggested_apr"],
-        "max_loan_amount": score_result["max_loan_amount"],
-        "signals": score_result["signals"],
-        "auto_reject_flags": score_result["auto_reject_flags"],
-        "data_quality": score_result.get("data_quality", {}),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    
-    # Determine loan amount (min of requested and max allowed)
-    approved_amount = min(req.loan_amount_requested, score_result["max_loan_amount"]) if score_result["grade"] != "Reject" else 0
-    token_price = 50.0
-    total_tokens = int(approved_amount / token_price) if approved_amount > 0 else 0
-    
-    loan = {
-        "id": str(uuid.uuid4()),
-        "borrower_id": user["sub"],
-        "borrower_name": user.get("name", "Unknown"),
-        "business_name": req.business_name,
-        "industry": req.industry,
-        "years_operating": req.years_operating,
-        "monthly_revenue": req.monthly_revenue,
-        "loan_amount_requested": req.loan_amount_requested,
-        "loan_amount_approved": approved_amount,
-        "loan_purpose": req.loan_purpose,
-        "status": "rejected" if score_result["grade"] == "Reject" else "pending",
-        "grade": score_result["grade"],
-        "interest_rate": score_result["suggested_apr"],
-        "term_months": 12,
-        "total_tokens": total_tokens,
-        "tokens_sold": 0,
-        "token_price": token_price,
-        "credit_score_id": credit_score_record["id"],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "approved_at": None,
-        "funded_at": None,
-    }
-    
-    credit_score_record["loan_id"] = loan["id"]
-    
-    await db.credit_scores.insert_one(credit_score_record)
-    await db.loans.insert_one(loan)
-    
-    # ── EMAIL 1: Loan Application Received ──
-    borrower_user = await db.users.find_one({"id": user["sub"]})
-    borrower_email = borrower_user.get("email", "") if borrower_user else ""
-    borrower_first = user.get("name", "").split()[0] if user.get("name") else "there"
-    send_loan_application_received(
-        to_email=borrower_email,
-        first_name=borrower_first,
-        loan_amount=req.loan_amount_requested,
-        business_name=req.business_name,
-        application_id=loan["id"],
-        user_id=user["sub"],
-    )
-
-    # ── EMAIL 2: Credit Score Ready ──
-    send_credit_score_ready(
-        to_email=borrower_email,
-        first_name=borrower_first,
-        business_name=req.business_name,
-        grade=score_result["grade"],
-        composite_score=score_result["composite_score"],
-        suggested_apr=score_result["suggested_apr"],
-        max_loan_amount=score_result["max_loan_amount"],
-        user_id=user["sub"],
-    )
-
-    return {
-        "success": True,
-        "loan_id": loan["id"],
-        "status": loan["status"],
-        "credit_score": {
-            "id": credit_score_record["id"],
+    try:
+        # Extract loan amount (handle both field names)
+        loan_amount = req.loan_amount_requested or req.loan_amount
+        if not loan_amount:
+            raise HTTPException(status_code=400, detail="Loan amount is required")
+        
+        if loan_amount < 20000 or loan_amount > 500000:
+            raise HTTPException(status_code=400, detail="Loan amount must be between $20,000 and $500,000")
+        
+        logger.info(f"Processing loan application for user {user['sub']}: ${loan_amount}")
+        
+        # Build application data for credit scoring
+        application_data = {
+            "business_name": req.business_name,
+            "industry": req.industry,
+            "years_operating": req.years_operating,
+            "loan_amount_requested": loan_amount,
+            "loan_purpose": req.loan_purpose,
+            "existing_debt": req.existing_debt or 0,
+            "existing_loans": req.existing_loans or 0,
+            "bureau_score": req.bureau_score or 680,
+            "payroll_consistency": req.payroll_consistency or 0.85,
+        }
+        
+        # Handle Plaid data
+        plaid_analysis = None
+        if req.plaid_connected and req.plaid_data:
+            logger.info(f"Plaid data provided: {req.plaid_data}")
+            
+            # Auto-calculate avg_monthly_revenue from balance if not provided
+            avg_monthly_revenue = req.plaid_data.avg_monthly_revenue
+            if not avg_monthly_revenue and req.plaid_data.balance:
+                avg_monthly_revenue = req.plaid_data.balance * 3  # Estimate
+                logger.info(f"Calculated avg_monthly_revenue from balance: ${avg_monthly_revenue}")
+            
+            plaid_analysis = {
+                "institution_name": req.plaid_data.institution_name or "Bank",
+                "account_last_four": req.plaid_data.account_last_four or "****",
+                "bank_balance": req.plaid_data.balance or 0,
+                "avg_monthly_revenue": avg_monthly_revenue or 0,
+                "cash_buffer_days": req.plaid_data.buffer_days or 0,
+                "transaction_count": req.plaid_data.transactions_count or 0,
+                "revenue_trend": req.plaid_data.revenue_trend or 0.0,
+                "negative_balance_days": req.plaid_data.negative_balance_days or 0,
+                "source": "plaid",
+            }
+            
+            # Add to application data
+            application_data["monthly_revenue"] = avg_monthly_revenue
+            application_data["bank_balance"] = req.plaid_data.balance
+            application_data["revenue_trend"] = req.plaid_data.revenue_trend or 0.05
+        
+        # Handle Stripe data
+        stripe_analysis = None
+        if req.stripe_connected and req.stripe_data:
+            logger.info(f"Stripe data provided: {req.stripe_data}")
+            
+            stripe_revenue = max(
+                req.stripe_data.avg_monthly_revenue or 0,
+                req.stripe_data.current_mrr or 0
+            )
+            
+            stripe_analysis = {
+                "business_name": req.stripe_data.business_name or "",
+                "avg_monthly_revenue": req.stripe_data.avg_monthly_revenue or 0,
+                "current_mrr": req.stripe_data.current_mrr or 0,
+                "revenue_trend": req.stripe_data.revenue_trend or 0.0,
+                "revenue_consistency": req.stripe_data.revenue_consistency or 0.0,
+                "source": "stripe",
+            }
+            
+            # Use Stripe revenue if higher
+            if stripe_revenue > application_data.get("monthly_revenue", 0):
+                application_data["monthly_revenue"] = stripe_revenue
+            
+            if req.stripe_data.revenue_consistency:
+                application_data["customer_retention"] = req.stripe_data.revenue_consistency
+        
+        # Fallback to manual data if no live data
+        if not req.plaid_connected and not req.stripe_connected:
+            logger.info("No live data connected, using manual input")
+            if not req.monthly_revenue:
+                raise HTTPException(status_code=400, detail="Monthly revenue is required when Plaid is not connected")
+            
+            application_data["monthly_revenue"] = req.monthly_revenue
+            application_data["bank_balance"] = req.bank_balance
+            application_data["monthly_expenses"] = req.monthly_expenses
+            application_data["revenue_trend"] = req.revenue_trend or 0.05
+            application_data["customer_retention"] = req.customer_retention or 0.80
+        
+        # Ensure monthly_revenue exists
+        if not application_data.get("monthly_revenue"):
+            raise HTTPException(status_code=400, detail="Unable to determine monthly revenue from provided data")
+        
+        logger.info(f"Running credit scoring with data: {application_data}")
+        
+        # Run credit scoring
+        score_result = calculate_credit_score(application_data, plaid_analysis, stripe_analysis)
+        
+        logger.info(f"Credit score calculated: {score_result['composite_score']} (Grade: {score_result['grade']})")
+        
+        # Save credit score
+        credit_score_record = {
+            "id": str(uuid.uuid4()),
+            "borrower_id": user["sub"],
             "composite_score": score_result["composite_score"],
+            "base_score": score_result.get("base_score", score_result["composite_score"]),
+            "quality_boost": score_result.get("quality_boost", 0),
             "grade": score_result["grade"],
             "suggested_apr": score_result["suggested_apr"],
             "max_loan_amount": score_result["max_loan_amount"],
-            "auto_reject_flags": score_result["auto_reject_flags"],
             "signals": score_result["signals"],
+            "auto_reject_flags": score_result["auto_reject_flags"],
+            "data_quality": score_result.get("data_quality", {}),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
-    }
+        
+        # Determine loan amount (min of requested and max allowed)
+        approved_amount = min(loan_amount, score_result["max_loan_amount"]) if score_result["grade"] != "Reject" else 0
+        token_price = 50.0
+        total_tokens = int(approved_amount / token_price) if approved_amount > 0 else 0
+        
+        loan = {
+            "id": str(uuid.uuid4()),
+            "borrower_id": user["sub"],
+            "borrower_name": user.get("name", "Unknown"),
+            "business_name": req.business_name,
+            "industry": req.industry,
+            "years_operating": req.years_operating,
+            "monthly_revenue": application_data.get("monthly_revenue", 0),
+            "loan_amount_requested": loan_amount,
+            "loan_amount_approved": approved_amount,
+            "loan_purpose": req.loan_purpose,
+            "status": "rejected" if score_result["grade"] == "Reject" else "pending",
+            "grade": score_result["grade"],
+            "interest_rate": score_result["suggested_apr"],
+            "term_months": 12,
+            "total_tokens": total_tokens,
+            "tokens_sold": 0,
+            "token_price": token_price,
+            "credit_score_id": credit_score_record["id"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "approved_at": None,
+            "funded_at": None,
+        }
+        
+        credit_score_record["loan_id"] = loan["id"]
+        
+        await db.credit_scores.insert_one(credit_score_record)
+        await db.loans.insert_one(loan)
+        
+        logger.info(f"Loan application saved: {loan['id']} (Status: {loan['status']})")
+        
+        # ── EMAIL 1: Loan Application Received ──
+        borrower_user = await db.users.find_one({"id": user["sub"]})
+        borrower_email = borrower_user.get("email", "") if borrower_user else ""
+        borrower_first = user.get("name", "").split()[0] if user.get("name") else "there"
+        send_loan_application_received(
+            to_email=borrower_email,
+            first_name=borrower_first,
+            loan_amount=loan_amount,
+            business_name=req.business_name,
+            application_id=loan["id"],
+            user_id=user["sub"],
+        )
+
+        # ── EMAIL 2: Credit Score Ready ──
+        send_credit_score_ready(
+            to_email=borrower_email,
+            first_name=borrower_first,
+            business_name=req.business_name,
+            grade=score_result["grade"],
+            composite_score=score_result["composite_score"],
+            suggested_apr=score_result["suggested_apr"],
+            max_loan_amount=score_result["max_loan_amount"],
+            user_id=user["sub"],
+        )
+
+        return {
+            "success": True,
+            "loan_id": loan["id"],
+            "status": loan["status"],
+            "credit_score": {
+                "id": credit_score_record["id"],
+                "composite_score": score_result["composite_score"],
+                "grade": score_result["grade"],
+                "suggested_apr": score_result["suggested_apr"],
+                "max_loan_amount": score_result["max_loan_amount"],
+                "auto_reject_flags": score_result["auto_reject_flags"],
+                "signals": score_result["signals"],
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Loan application failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Application processing failed: {str(e)}")
 
 @api_router.get("/loans/my-loans")
 async def get_my_loans(request: Request):
