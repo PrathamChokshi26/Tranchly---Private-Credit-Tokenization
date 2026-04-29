@@ -49,7 +49,8 @@ export default function LoanDetail() {
     ? (principal * (monthlyRate * Math.pow(1 + monthlyRate, term))) / (Math.pow(1 + monthlyRate, term) - 1)
     : (principal / term);
   const dscr = monthlyPayment > 0 && loan.monthly_revenue ? (loan.monthly_revenue / monthlyPayment) : null;
-  const reserveContribution = loan.reserve_fund_contribution || (principal * 0.03);
+  const fallbackRate = loan.grade === 'A' ? 0.025 : loan.grade === 'B' ? 0.05 : loan.grade === 'C' ? 0.08 : 0.03;
+  const reserveContribution = loan.reserve_fund_contribution || (principal * fallbackRate);
   const reserveCoveragePct = principal > 0 ? (reserveContribution / principal * 100) : 0;
 
   return (

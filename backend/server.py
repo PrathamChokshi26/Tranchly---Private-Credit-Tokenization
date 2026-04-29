@@ -688,6 +688,7 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
         data_quality_score = score_result["data_quality_score"]
         data_sources = score_result["data_sources"]
         reserve_fund_contribution = score_result["reserve_fund_contribution"]
+        reserve_rate = score_result.get("reserve_rate", 0.0)
 
         logger.info(f"V2 Score: {composite_score} (Grade: {grade}) APR: {apr_range}")
 
@@ -708,6 +709,7 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
             "data_quality_score": data_quality_score,
             "data_sources": data_sources,
             "reserve_fund_contribution": reserve_fund_contribution,
+            "reserve_rate": reserve_rate,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -746,6 +748,7 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
             "data_quality_score": data_quality_score,
             "data_sources": data_sources,
             "reserve_fund_contribution": reserve_fund_contribution,
+            "reserve_rate": reserve_rate,
             "term_months": 12,
             "total_tokens": total_tokens,
             "tokens_sold": 0,
@@ -834,6 +837,7 @@ async def apply_for_loan(req: LoanApplicationRequest, request: Request):
                 "data_quality_score": data_quality_score,
                 "data_sources": data_sources,
                 "reserve_fund_contribution": reserve_fund_contribution,
+                "reserve_rate": reserve_rate,
             }
         }
     
@@ -1545,6 +1549,23 @@ async def get_admin_analytics(request: Request):
     outstanding_principal = sum(float(ln.get("loan_amount_approved", 0) or 0) for ln in active_loans)
     coverage_ratio = round((total_contributed / outstanding_principal * 100), 2) if outstanding_principal > 0 else 0.0
 
+    # ── Reserve pools by grade + weighted avg reserve rate ──
+    reserve_by_grade = {"A": 0.0, "B": 0.0, "C": 0.0}
+    weighted_rate_num = 0.0
+    weighted_rate_den = 0.0
+    for ln in active_loans:
+        g = ln.get("grade")
+        contrib = float(ln.get("reserve_fund_contribution") or 0)
+        rate = float(ln.get("reserve_rate") or 0)
+        principal = float(ln.get("loan_amount_approved") or 0)
+        if g in reserve_by_grade:
+            reserve_by_grade[g] += contrib
+        if principal > 0:
+            weighted_rate_num += rate * principal
+            weighted_rate_den += principal
+    weighted_avg_reserve_rate = round((weighted_rate_num / weighted_rate_den * 100), 3) if weighted_rate_den > 0 else 0.0
+    reserve_by_grade = {g: round(v, 2) for g, v in reserve_by_grade.items()}
+
     # ── Credit Model Performance ──
     all_scored = await db.loans.find(
         {"credit_score": {"$exists": True}},
@@ -1610,6 +1631,8 @@ async def get_admin_analytics(request: Request):
                 "loans_contributing": reserve_loan_count,
                 "outstanding_principal": round(outstanding_principal, 2),
                 "coverage_ratio_pct": coverage_ratio,
+                "by_grade": reserve_by_grade,
+                "weighted_avg_rate_pct": weighted_avg_reserve_rate,
             },
             "credit_model": {
                 "avg_composite_score": avg_score,

@@ -17,6 +17,7 @@ V2_RESULT_KEYS = {
     "score", "grade", "apr_range", "apr_mid", "max_loan_amount",
     "layer_scores", "signal_breakdown", "explanation",
     "data_quality_score", "data_sources", "reserve_fund_contribution",
+    "reserve_rate",
     "auto_reject", "auto_reject_flags", "approved_amount",
 }
 
@@ -83,7 +84,10 @@ class TestLoanApplyV2Schema:
         assert isinstance(cs["explanation"], dict)
         assert "positive_factors" in cs["explanation"]
         assert isinstance(cs["data_sources"], dict)
-        assert cs["reserve_fund_contribution"] == pytest.approx(50000 * 0.03, rel=1e-3)
+        # Risk-based reserve: A=2.5%, B=5%, C=8%
+        rate_for_grade = {"A": 0.025, "B": 0.05, "C": 0.08}.get(cs["grade"], 0.0)
+        assert cs["reserve_fund_contribution"] == pytest.approx(50000 * rate_for_grade, rel=1e-3)
+        assert cs.get("reserve_rate") == pytest.approx(rate_for_grade, rel=1e-3)
 
     def test_personal_guarantee_false_reflected(self, borrower_client, base_url):
         payload = _base_payload(personal_guarantee=False, business_assets=0)
@@ -188,7 +192,7 @@ class TestReserveFundAndAnalytics:
         base_total = float(a0["reserve_fund"].get("total_contributed", 0))
         base_loans = int(a0["reserve_fund"].get("loans_contributing", 0))
 
-        # Submit approved loan → expect +3% of 50000 = 1500 added
+        # Submit approved loan → expect risk-based contribution (A=2.5%, B=5%, C=8% of 50000)
         payload = _base_payload(
             monthly_revenue=40000, bureau_score=780, personal_guarantee=True,
             business_assets=60000, years_operating=5, revenue_trend=0.1,
@@ -199,7 +203,9 @@ class TestReserveFundAndAnalytics:
         cs = r.json()["credit_score"]
         assert cs["grade"] != "Reject"
         contribution = float(cs["reserve_fund_contribution"])
-        assert contribution == pytest.approx(1500.0, rel=1e-3)
+        rate_for_grade = {"A": 0.025, "B": 0.05, "C": 0.08}.get(cs["grade"], 0.0)
+        assert contribution == pytest.approx(50000 * rate_for_grade, rel=1e-3)
+        assert cs.get("reserve_rate") == pytest.approx(rate_for_grade, rel=1e-3)
 
         # Re-check analytics
         r1 = admin_client.get(f"{base_url}/api/admin/analytics", timeout=30)
@@ -267,3 +273,57 @@ class TestAdminApplications:
         }
         missing = required - set(cs.keys())
         assert not missing, f"Admin queue credit_score missing V2 fields: {missing}"
+
+
+
+# ──────────────────────────────────────────────────────────
+# Risk-based reserve fund (A=2.5%, B=5%, C=8%, Reject=0%)
+# ──────────────────────────────────────────────────────────
+class TestRiskBasedReserveFund:
+    def test_grade_a_reserve_rate(self, borrower_client, base_url):
+        # Strong applicant → Grade A
+        payload = _base_payload(
+            monthly_revenue=80000, bureau_score=780, personal_guarantee=True,
+            business_assets=150000, years_operating=8, revenue_trend=0.15,
+            cash_buffer_days=180, loan_amount_requested=40000, industry="saas",
+        )
+        r = borrower_client.post(f"{base_url}/api/loans/apply", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        cs = r.json()["credit_score"]
+        if cs["grade"] == "A":
+            assert cs["reserve_rate"] == pytest.approx(0.025, rel=1e-3)
+            assert cs["reserve_fund_contribution"] == pytest.approx(40000 * 0.025, rel=1e-3)
+
+    def test_grade_c_reserve_rate(self, borrower_client, base_url):
+        # Weaker applicant → Grade C-ish
+        payload = _base_payload(
+            monthly_revenue=4500, bureau_score=620, personal_guarantee=False,
+            business_assets=2000, years_operating=1, revenue_trend=0.0,
+            cash_buffer_days=15, loan_amount_requested=20000, industry="retail",
+        )
+        r = borrower_client.post(f"{base_url}/api/loans/apply", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        cs = r.json()["credit_score"]
+        if cs["grade"] == "C":
+            assert cs["reserve_rate"] == pytest.approx(0.08, rel=1e-3)
+            assert cs["reserve_fund_contribution"] == pytest.approx(20000 * 0.08, rel=1e-3)
+
+    def test_reject_reserve_zero(self, borrower_client, base_url):
+        # Auto-reject: revenue too low
+        payload = _base_payload(monthly_revenue=1000, loan_amount_requested=20000)
+        r = borrower_client.post(f"{base_url}/api/loans/apply", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        cs = r.json()["credit_score"]
+        if cs.get("auto_reject"):
+            assert cs["reserve_rate"] == 0.0
+            assert cs["reserve_fund_contribution"] == 0.0
+
+    def test_admin_analytics_per_grade_pools(self, admin_client, base_url):
+        r = admin_client.get(f"{base_url}/api/admin/analytics", timeout=30)
+        assert r.status_code == 200, r.text
+        rf = r.json()["analytics"]["reserve_fund"]
+        assert "by_grade" in rf
+        assert set(rf["by_grade"].keys()) == {"A", "B", "C"}
+        assert "weighted_avg_rate_pct" in rf
+        # Weighted rate must be between 0 and 8 (the max grade rate)
+        assert 0.0 <= rf["weighted_avg_rate_pct"] <= 8.0

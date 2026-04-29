@@ -67,7 +67,9 @@ export default function Marketplace() {
               ? (principal * (monthlyRate * Math.pow(1 + monthlyRate, term))) / (Math.pow(1 + monthlyRate, term) - 1)
               : (principal / term);
             const dscr = monthlyPayment > 0 && loan.monthly_revenue ? (loan.monthly_revenue / monthlyPayment) : null;
-            const reserveContribution = loan.reserve_fund_contribution || (principal * 0.03);
+            // Grade-based fallback if loan predates risk-based reserves
+            const fallbackRate = loan.grade === 'A' ? 0.025 : loan.grade === 'B' ? 0.05 : loan.grade === 'C' ? 0.08 : 0.03;
+            const reserveContribution = loan.reserve_fund_contribution || (principal * fallbackRate);
             const reserveCoveragePct = principal > 0 ? (reserveContribution / principal * 100) : 0;
             return (
               <Link key={loan.id} to={`/investor/marketplace/${loan.id}`}
@@ -101,9 +103,12 @@ export default function Marketplace() {
                     <p className="text-[10px] uppercase tracking-wide text-gray-500">DSCR</p>
                     <p className="text-sm font-bold text-gray-800 tabular-nums">{dscr ? `${dscr.toFixed(2)}x` : '—'}</p>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500">Reserve Coverage</p>
-                    <p className="text-sm font-bold text-purple-700 tabular-nums">{reserveCoveragePct.toFixed(1)}%</p>
+                  <div
+                    className="relative group"
+                    title="Tranchly's Investor Protection Fund holds a reserve for each loan. In case of default, the reserve is used to partially offset investor losses. Reserve does not guarantee full principal recovery."
+                  >
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500">Reserve</p>
+                    <p className="text-sm font-bold text-purple-700 tabular-nums">{reserveCoveragePct.toFixed(1)}% of loan protected</p>
                   </div>
                 </div>
 

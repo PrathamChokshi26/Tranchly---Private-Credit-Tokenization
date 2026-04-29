@@ -75,7 +75,7 @@ export default function Analytics() {
       {/* ─── V2 METRIC CARDS ─────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* 1) Investor Protection Fund — total balance */}
+        {/* 1) Investor Protection Fund — total balance + by grade */}
         <div className="bg-gradient-to-br from-purple-50 to-white rounded-xl border-2 border-purple-200 p-5" data-testid="ipf-total-card">
           <div className="flex items-center gap-2 mb-3">
             <Shield className="text-purple-600" size={20} />
@@ -83,17 +83,41 @@ export default function Analytics() {
           </div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Total Balance</p>
           <p data-testid="ipf-total-balance" className="text-4xl font-black text-purple-700 tabular-nums mt-1">${(reserve.total_contributed || 0).toLocaleString()}</p>
-          <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-purple-100">
-            <div>
-              <p className="text-xs text-gray-500">Contributing Loans</p>
-              <p data-testid="ipf-loans" className="font-bold tabular-nums">{reserve.loans_contributing || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Coverage</p>
-              <p data-testid="ipf-coverage" className="font-bold tabular-nums text-purple-700">{(reserve.coverage_ratio_pct || 0).toFixed(2)}%</p>
+
+          {/* By grade pools */}
+          <div className="mt-4 pt-4 border-t border-purple-100">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-2 font-semibold">Pools by Grade</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2" data-testid="reserve-pool-a">
+                <p className="text-[10px] text-emerald-700 font-bold">A · 2.5%</p>
+                <p className="text-sm font-bold text-emerald-700 tabular-nums">${(reserve.by_grade?.A || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-teal-50 border border-teal-200 rounded-lg p-2" data-testid="reserve-pool-b">
+                <p className="text-[10px] text-teal-700 font-bold">B · 5%</p>
+                <p className="text-sm font-bold text-teal-700 tabular-nums">${(reserve.by_grade?.B || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2" data-testid="reserve-pool-c">
+                <p className="text-[10px] text-amber-700 font-bold">C · 8%</p>
+                <p className="text-sm font-bold text-amber-700 tabular-nums">${(reserve.by_grade?.C || 0).toLocaleString()}</p>
+              </div>
             </div>
           </div>
-          <p className="text-[11px] text-gray-400 mt-3">3% of every approved loan buffers investor losses on defaults.</p>
+
+          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-purple-100">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase">Loans</p>
+              <p data-testid="ipf-loans" className="font-bold tabular-nums text-sm">{reserve.loans_contributing || 0}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase">Coverage</p>
+              <p data-testid="ipf-coverage" className="font-bold tabular-nums text-sm text-purple-700">{(reserve.coverage_ratio_pct || 0).toFixed(2)}%</p>
+            </div>
+            <div title="Weighted by outstanding principal across all active loans">
+              <p className="text-[10px] text-gray-500 uppercase">Weighted Rate</p>
+              <p data-testid="ipf-weighted-rate" className="font-bold tabular-nums text-sm text-purple-700">{(reserve.weighted_avg_rate_pct || 0).toFixed(2)}%</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Risk-based reserves: A=2.5%, B=5%, C=8% of loan amount.</p>
         </div>
 
         {/* 2) Grade Distribution — donut chart */}

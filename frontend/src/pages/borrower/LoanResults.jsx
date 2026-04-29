@@ -218,19 +218,28 @@ export default function LoanResults() {
       )}
 
       {/* Reserve Fund Contribution */}
-      {cs.reserve_fund_contribution > 0 && !cs.auto_reject && (
-        <div className="rounded-xl border border-purple-200 bg-purple-50 p-5" data-testid="reserve-fund-card">
-          <div className="flex items-start gap-3">
-            <Shield className="text-purple-600 mt-0.5" size={20} />
-            <div>
-              <p className="font-semibold text-gray-900">Investor Protection Fund</p>
-              <p className="text-xs text-gray-600 mt-0.5">
-                <span className="font-bold text-purple-700">${cs.reserve_fund_contribution.toLocaleString()}</span> (3% of loan amount) will be contributed to a platform-wide reserve that buffers investor losses on defaults.
-              </p>
+      {cs.reserve_fund_contribution > 0 && !cs.auto_reject && (() => {
+        const ratePct = cs.reserve_rate ? (cs.reserve_rate * 100) : (cs.grade === 'A' ? 2.5 : cs.grade === 'B' ? 5 : cs.grade === 'C' ? 8 : 0);
+        const tier =
+          cs.grade === 'A' ? 'Standard coverage for Grade A loans' :
+          cs.grade === 'B' ? 'Enhanced coverage for Grade B loans' :
+          cs.grade === 'C' ? 'Maximum coverage for Grade C loans' :
+          'Coverage';
+        return (
+          <div className="rounded-xl border border-purple-200 bg-purple-50 p-5" data-testid="reserve-fund-card">
+            <div className="flex items-start gap-3">
+              <Shield className="text-purple-600 mt-0.5" size={20} />
+              <div>
+                <p className="font-semibold text-gray-900">Investor Protection: ${cs.reserve_fund_contribution.toLocaleString()}</p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  <span className="font-bold text-purple-700">{ratePct}%</span> — {tier}.
+                  This contribution funds a platform-wide reserve that buffers investor losses on defaults.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="flex gap-3 pt-2">
         <button data-testid="btn-go-to-dashboard" onClick={() => navigate('/borrower')} className="bg-purple-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-purple-700">

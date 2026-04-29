@@ -426,10 +426,19 @@ def calculate_credit_score(
     data_quality_score = round((live_signals / total_signals) * 100)
     
     # ═══════════════════════════════════════════════════════
-    # RESERVE FUND CONTRIBUTION (3% of loan amount)
+    # RESERVE FUND CONTRIBUTION (risk-based by grade)
     # ═══════════════════════════════════════════════════════
     
-    reserve_contribution = round(loan_amount * 0.03, 2)
+    if grade == 'A':
+        reserve_rate = 0.025  # 2.5%
+    elif grade == 'B':
+        reserve_rate = 0.05   # 5%
+    elif grade == 'C':
+        reserve_rate = 0.08   # 8%
+    else:
+        reserve_rate = 0.0    # Rejected loans = 0
+    
+    reserve_contribution = round(loan_amount * reserve_rate, 2)
     
     # ═══════════════════════════════════════════════════════
     # RETURN COMPLETE SCORING RESULT
@@ -486,5 +495,6 @@ def calculate_credit_score(
             'live_signals': live_signals,
             'total_signals': total_signals
         },
+        'reserve_rate': reserve_rate,
         'reserve_fund_contribution': reserve_contribution
     }
