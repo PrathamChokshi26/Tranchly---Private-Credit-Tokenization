@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import StatCard from '../../components/StatCard';
 import GradeBadge from '../../components/GradeBadge';
-import { Landmark, Clock, CheckCircle2, FileText, ArrowRight, AlertCircle } from 'lucide-react';
+import { Landmark, Clock, CheckCircle2, FileText, ArrowRight, Zap, BarChart3, MessageCircle } from 'lucide-react';
 
 export default function BorrowerDashboard() {
   const { api } = useAuth();
@@ -19,63 +19,132 @@ export default function BorrowerDashboard() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full" /></div>;
 
+  const isFirstTime = loans.length === 0;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Borrower Dashboard</h1>
-          <p className="text-gray-500 text-sm">Manage your loans and track repayments</p>
-        </div>
-        <Link to="/borrower/apply" className="bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-teal-700 flex items-center gap-2">
-          <FileText size={16} /> Apply for Loan
-        </Link>
-      </div>
+    <div className="space-y-6" data-testid="borrower-dashboard">
+      {isFirstTime ? (
+        // ─── First-time hero (no loans yet) ─────────────────────
+        <div className="space-y-6" data-testid="borrower-hero">
+          <div className="bg-gradient-to-br from-purple-50 via-white to-teal-50 rounded-2xl border-2 border-purple-100 p-8 sm:p-10">
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+              Get the funding your business deserves
+            </h1>
+            <p className="mt-3 text-base sm:text-lg text-gray-600 max-w-2xl leading-relaxed">
+              Connect your bank account and get a real credit decision in minutes — based on your actual cash flow, not just your credit score.
+            </p>
+            <div className="mt-6">
+              <Link
+                to="/borrower/apply"
+                data-testid="btn-start-application"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-teal-500 to-teal-600 text-white px-6 py-3 rounded-xl text-base font-semibold hover:from-teal-600 hover:to-teal-700 shadow-lg shadow-teal-200/50 transition-all"
+              >
+                Start Application <ArrowRight size={18} />
+              </Link>
+            </div>
+          </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Landmark} label="Total Borrowed" value={`$${totalBorrowed.toLocaleString()}`} color="teal" />
-        <StatCard icon={Clock} label="Active Loans" value={active.length} color="purple" />
-        <StatCard icon={CheckCircle2} label="Completed" value={loans.filter(l => l.status === 'completed').length} color="emerald" />
-        <StatCard icon={FileText} label="Applications" value={loans.length} color="blue" />
-      </div>
+          {/* Benefit cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="borrower-benefit-cards">
+            <BenefitCard
+              icon={Zap}
+              emoji="⚡"
+              color="amber"
+              title="Fast decisions"
+              text="Most applications scored in under 5 minutes using live bank data."
+              testid="benefit-fast"
+            />
+            <BenefitCard
+              icon={BarChart3}
+              emoji="📊"
+              color="emerald"
+              title="Fair underwriting"
+              text="We look at 12 signals from your real business performance — not just your FICO score."
+              testid="benefit-fair"
+            />
+            <BenefitCard
+              icon={MessageCircle}
+              emoji="💬"
+              color="purple"
+              title="Clear explanations"
+              text="Every decision comes with specific reasons and a clear path to approval."
+              testid="benefit-clear"
+            />
+          </div>
 
-      {loans.length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center">
-          <Landmark size={48} className="mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-700">No loans yet</h3>
-          <p className="text-gray-500 mt-1 mb-4">Apply for your first loan to get started</p>
-          <Link to="/borrower/apply" className="inline-flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-lg text-sm font-semibold">
-            Apply Now <ArrowRight size={14} />
-          </Link>
+          <div className="bg-white rounded-xl border p-12 text-center">
+            <Landmark size={48} className="mx-auto text-gray-300 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-700">No loans yet</h3>
+            <p className="text-gray-500 mt-1 mb-4">Apply for your first loan to get started</p>
+            <Link to="/borrower/apply" className="inline-flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              Apply Now <ArrowRight size={14} />
+            </Link>
+          </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border">
-          <div className="px-5 py-4 border-b">
-            <h2 className="font-semibold text-gray-900">Your Loans</h2>
+        // ─── Returning-borrower dashboard ───────────────────────
+        <>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Borrower Dashboard</h1>
+              <p className="text-gray-500 text-sm">Manage your loans and track repayments</p>
+            </div>
+            <Link to="/borrower/apply" className="bg-gradient-to-r from-teal-500 to-teal-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:from-teal-600 hover:to-teal-700 flex items-center gap-2">
+              <FileText size={16} /> Apply for Loan
+            </Link>
           </div>
-          <div className="divide-y">
-            {loans.map(loan => (
-              <Link key={loan.id} to={`/borrower/loans/${loan.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900">{loan.business_name}</p>
-                  <p className="text-sm text-gray-500">${loan.loan_amount_requested?.toLocaleString()} requested • {loan.industry}</p>
-                </div>
-                <GradeBadge grade={loan.grade} />
-                <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                  loan.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                  loan.status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                  loan.status === 'funded' ? 'bg-purple-100 text-purple-700' :
-                  loan.status === 'repaying' ? 'bg-teal-100 text-teal-700' :
-                  loan.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                  loan.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
-                }`}>
-                  {loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
-                </span>
-                <ArrowRight size={16} className="text-gray-400" />
-              </Link>
-            ))}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard icon={Landmark} label="Total Borrowed" value={`$${totalBorrowed.toLocaleString()}`} color="teal" />
+            <StatCard icon={Clock} label="Active Loans" value={active.length} color="purple" />
+            <StatCard icon={CheckCircle2} label="Completed" value={loans.filter(l => l.status === 'completed').length} color="emerald" />
+            <StatCard icon={FileText} label="Applications" value={loans.length} color="blue" />
           </div>
-        </div>
+
+          <div className="bg-white rounded-xl border">
+            <div className="px-5 py-4 border-b">
+              <h2 className="font-semibold text-gray-900">Your Loans</h2>
+            </div>
+            <div className="divide-y">
+              {loans.map(loan => (
+                <Link key={loan.id} to={`/borrower/loans/${loan.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900">{loan.business_name}</p>
+                    <p className="text-sm text-gray-500">${loan.loan_amount_requested?.toLocaleString()} requested • {loan.industry}</p>
+                  </div>
+                  <GradeBadge grade={loan.grade} />
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    loan.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                    loan.status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                    loan.status === 'funded' ? 'bg-purple-100 text-purple-700' :
+                    loan.status === 'repaying' ? 'bg-teal-100 text-teal-700' :
+                    loan.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                    loan.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                  }`}>
+                    {loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
+                  </span>
+                  <ArrowRight size={16} className="text-gray-400" />
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+function BenefitCard({ icon: Icon, emoji, color, title, text, testid }) {
+  const ringColor = { amber: 'bg-amber-100 text-amber-700', emerald: 'bg-emerald-100 text-emerald-700', purple: 'bg-purple-100 text-purple-700' }[color] || 'bg-gray-100 text-gray-700';
+  return (
+    <div data-testid={testid} className="bg-white rounded-xl border-2 border-gray-100 p-5 hover:border-purple-200 transition-colors">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${ringColor}`}>
+        <Icon size={20} />
+      </div>
+      <h3 className="font-bold text-gray-900 flex items-center gap-1.5">
+        <span aria-hidden="true">{emoji}</span> {title}
+      </h3>
+      <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">{text}</p>
     </div>
   );
 }

@@ -18,20 +18,22 @@ export default function CapitalPassport() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Capital Passport</h1>
-        <p className="text-gray-500 text-sm">Your verified business credit identity</p>
+        <h1 className="text-2xl font-bold text-gray-900">Your Business Credit Profile</h1>
+        <p className="text-gray-500 text-sm">
+          Every loan you repay on Tranchly builds your verified credit profile. A stronger profile means better rates and higher loan limits over time.
+        </p>
       </div>
 
-      {/* Identity Card */}
+      {/* Verified Credit Card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0f172a] to-[#1e293b] text-white p-8 shadow-2xl">
         <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/20 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl" />
-        
+
         <div className="relative">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <Shield size={24} className="text-purple-400" />
-              <span className="text-sm font-bold tracking-wider text-purple-300">CAPITAL PASSPORT</span>
+              <span className="text-sm font-bold tracking-wider text-purple-300">VERIFIED CREDIT PROFILE</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-xs text-slate-400">ID</span>

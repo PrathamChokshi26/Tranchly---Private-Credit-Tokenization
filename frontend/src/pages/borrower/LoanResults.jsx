@@ -61,12 +61,20 @@ export default function LoanResults() {
   const cs = result.credit_score;
   const gradeColor = { A: 'text-emerald-600', B: 'text-teal-600', C: 'text-amber-600', Reject: 'text-red-600' };
   const gradeBg = { A: 'bg-emerald-50 border-emerald-300', B: 'bg-teal-50 border-teal-300', C: 'bg-amber-50 border-amber-300', Reject: 'bg-red-50 border-red-300' };
+  const isApproved = cs.grade !== 'Reject' && !cs.auto_reject;
+  const headerTitle = isApproved
+    ? "You're approved — here's your offer"
+    : 'Not approved yet';
+  const headerSubtitle = isApproved
+    ? 'Your loan has been approved by our credit engine. Review the offer below.'
+    : 'We weren\'t able to approve this application right now. The reasons below explain why and how to improve.';
+  const gradeLabel = cs.grade === 'Reject' ? 'Not approved yet' : `Grade ${cs.grade}`;
 
   return (
     <div className="max-w-3xl mx-auto space-y-5" data-testid="loan-results-page">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Credit Score Result</h1>
-        <p className="text-gray-500 text-sm">Tranchly V2 — three-layer predictive model</p>
+        <h1 className="text-2xl font-bold text-gray-900" data-testid="results-header-title">{headerTitle}</h1>
+        <p className="text-gray-500 text-sm">{headerSubtitle}</p>
       </div>
 
       {/* Grade / APR / Max Loan */}
@@ -74,10 +82,12 @@ export default function LoanResults() {
         <div className="flex items-start justify-between mb-5">
           <div>
             <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Credit Score Result</p>
-            <h2 className="text-xl font-bold text-gray-900 mt-1">Grade {cs.grade}</h2>
+            <h2 className="text-xl font-bold text-gray-900 mt-1" data-testid="result-grade-label">{gradeLabel}</h2>
             <p className="text-sm text-gray-600 mt-0.5">{cs.explanation?.summary}</p>
           </div>
-          <span data-testid="result-grade-letter" className={`text-6xl font-black leading-none ${gradeColor[cs.grade] || 'text-gray-500'}`}>{cs.grade}</span>
+          <span data-testid="result-grade-letter" className={`text-6xl font-black leading-none ${gradeColor[cs.grade] || 'text-gray-500'}`}>
+            {cs.grade === 'Reject' ? '—' : cs.grade}
+          </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -107,7 +117,7 @@ export default function LoanResults() {
         <div className="rounded-xl border-2 border-red-300 bg-red-50 p-5" data-testid="auto-reject-flags-card">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="text-red-600" size={20} />
-            <h3 className="font-bold text-red-900">Application Auto-Rejected ({cs.auto_reject_flags.length} issue{cs.auto_reject_flags.length > 1 ? 's' : ''})</h3>
+            <h3 className="font-bold text-red-900">Why we couldn't approve this application</h3>
           </div>
           <div className="space-y-3">
             {cs.auto_reject_flags.map((f, i) => (
@@ -118,6 +128,9 @@ export default function LoanResults() {
               </div>
             ))}
           </div>
+          <p className="text-xs text-gray-700 mt-4 leading-relaxed bg-white border border-red-100 rounded-md p-3" data-testid="rejection-reassurance">
+            This decision was made automatically based on your financial data. It is not a reflection of your character or your business's potential. Many of our borrowers were initially declined and approved after improving the factors above.
+          </p>
         </div>
       )}
 

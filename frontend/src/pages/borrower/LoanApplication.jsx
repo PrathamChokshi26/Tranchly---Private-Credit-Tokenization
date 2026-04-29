@@ -107,8 +107,8 @@ export default function LoanApplication() {
   return (
     <div className="max-w-3xl mx-auto space-y-6" data-testid="loan-application-page">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Loan Application</h1>
-        <p className="text-gray-500 text-sm">Apply for $20K–$500K in business funding</p>
+        <h1 className="text-2xl font-bold text-gray-900">Tell us about your business</h1>
+        <p className="text-gray-500 text-sm">Get a funding decision based on your real business performance</p>
       </div>
 
       <div className="flex items-center gap-2">
@@ -231,7 +231,7 @@ export default function LoanApplication() {
       {step === 2 && (
         <div className="bg-white rounded-xl border p-6 space-y-6" data-testid="step-2-container">
           <div>
-            <h2 className="font-semibold text-gray-900 text-lg">Connect Live Data Sources</h2>
+            <h2 className="font-semibold text-gray-900 text-lg">Connect your business accounts</h2>
             <p className="text-sm text-gray-500 mt-1">
               Connect your bank and revenue accounts for a better credit score. Live data dramatically increases data quality.
             </p>
@@ -253,15 +253,18 @@ export default function LoanApplication() {
 
           <div>
             <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
-              Banking Data via Plaid
+              Bank account
               {plaidConnected && <CheckCircle2 className="text-emerald-600" size={18} />}
             </h3>
+            <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+              Securely connect your business bank account. We use read-only access to analyze your cash flow — we cannot move money or make changes to your account.
+            </p>
             <PlaidLink api={api} onSuccess={handlePlaidSuccess} onError={(err) => console.error('Plaid error:', err)} />
           </div>
 
           <div>
             <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
-              Revenue Data via Stripe
+              Revenue account
               {stripeConnected && <CheckCircle2 className="text-purple-600" size={18} />}
             </h3>
             <StripeConnect api={api} onSuccess={handleStripeSuccess} onError={(err) => console.error('Stripe error:', err)} />

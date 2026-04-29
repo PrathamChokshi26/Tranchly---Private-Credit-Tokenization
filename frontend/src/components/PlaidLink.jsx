@@ -144,7 +144,7 @@ export default function PlaidLink({ api, onSuccess, onError }) {
                 {bankData.institution_name || 'Bank'} (••••{bankData.account_last_four || '****'})
               </span>
               <span className="ml-auto px-2 py-0.5 bg-emerald-600 text-white text-xs rounded-full font-medium">
-                LIVE DATA
+                Verified Data
               </span>
             </div>
             <div className="grid grid-cols-2 gap-3 mt-2 text-sm">
