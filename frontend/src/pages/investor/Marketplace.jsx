@@ -71,6 +71,8 @@ export default function Marketplace() {
             const fallbackRate = loan.grade === 'A' ? 0.025 : loan.grade === 'B' ? 0.05 : loan.grade === 'C' ? 0.08 : 0.03;
             const reserveContribution = loan.reserve_fund_contribution || (principal * fallbackRate);
             const reserveCoveragePct = principal > 0 ? (reserveContribution / principal * 100) : 0;
+            const reserveRatePct = (loan.reserve_rate ? loan.reserve_rate * 100 : reserveCoveragePct);
+            const dscrColor = dscr === null ? 'text-gray-500' : dscr > 1.25 ? 'text-emerald-600' : dscr >= 1.0 ? 'text-amber-600' : 'text-red-600';
             return (
               <Link key={loan.id} to={`/investor/marketplace/${loan.id}`}
                 className="bg-white rounded-xl border p-5 hover:shadow-lg hover:border-purple-200 transition-all group">
@@ -82,7 +84,8 @@ export default function Marketplace() {
                   <GradeBadge grade={loan.grade} />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                {/* Row 1: Grade · APR · Term */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
                   <div>
                     <p className="text-xs text-gray-400">Target APR</p>
                     <p className="font-bold text-emerald-600">{loan.interest_rate}%</p>
@@ -97,18 +100,30 @@ export default function Marketplace() {
                   </div>
                 </div>
 
-                {/* Risk metrics */}
-                <div className="grid grid-cols-2 gap-2 mb-4 p-2.5 bg-gray-50 rounded-lg" data-testid={`risk-metrics-${loan.id}`}>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500">DSCR</p>
-                    <p className="text-sm font-bold text-gray-800 tabular-nums">{dscr ? `${dscr.toFixed(2)}x` : '—'}</p>
+                {/* Row 2: DSCR (color-coded) */}
+                <div className="mb-3 p-2.5 bg-gray-50 rounded-lg" data-testid={`row-dscr-${loan.id}`}>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold">Debt Service Coverage</span>
+                    <span className={`text-base font-bold tabular-nums ${dscrColor}`}>{dscr ? `${dscr.toFixed(2)}x` : '—'}</span>
                   </div>
+                  <p className="text-[10px] text-gray-400 mt-0.5">monthly revenue ÷ monthly payment</p>
+                </div>
+
+                {/* Row 3: Reserve · Industry · Years */}
+                <div className="grid grid-cols-3 gap-2 mb-3" data-testid={`row-meta-${loan.id}`}>
                   <div
-                    className="relative group"
                     title="Tranchly's Investor Protection Fund holds a reserve for each loan. In case of default, the reserve is used to partially offset investor losses. Reserve does not guarantee full principal recovery."
                   >
                     <p className="text-[10px] uppercase tracking-wide text-gray-500">Reserve</p>
-                    <p className="text-sm font-bold text-purple-700 tabular-nums">{reserveCoveragePct.toFixed(1)}% of loan protected</p>
+                    <p className="text-sm font-bold text-purple-700 tabular-nums">{reserveRatePct.toFixed(1)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500">Industry</p>
+                    <p className="text-sm font-semibold text-gray-700 truncate">{loan.industry || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500">Business age</p>
+                    <p className="text-sm font-semibold text-gray-700">{loan.years_operating ? `${loan.years_operating} yr` : '—'}</p>
                   </div>
                 </div>
 
@@ -131,8 +146,9 @@ export default function Marketplace() {
                   </span>
                 </div>
 
-                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug" data-testid={`risk-warning-${loan.id}`}>
-                  <strong>Risk Warning:</strong> Loan default may result in partial or total loss of invested capital.
+                {/* Row 4: persistent risk warning */}
+                <p className="text-[10px] text-gray-500" data-testid={`row-risk-${loan.id}`}>
+                  ⚠️ Principal at risk · Not FDIC insured
                 </p>
               </Link>
             );

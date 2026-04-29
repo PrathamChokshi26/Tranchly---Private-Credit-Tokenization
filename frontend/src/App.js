@@ -23,6 +23,7 @@ import Marketplace from './pages/investor/Marketplace';
 import LoanDetail from './pages/investor/LoanDetail';
 import SecondaryMarket from './pages/investor/SecondaryMarket';
 import YieldHistory from './pages/investor/YieldHistory';
+import Suitability from './pages/investor/Suitability';
 
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -32,7 +33,7 @@ import Analytics from './pages/admin/Analytics';
 import AllLoans from './pages/admin/AllLoans';
 import AdminUsers from './pages/admin/AdminUsers';
 
-function ProtectedRoute({ children, roles, requireKyc = true }) {
+function ProtectedRoute({ children, roles, requireKyc = true, requireSuitability = false }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin w-10 h-10 border-3 border-purple-500 border-t-transparent rounded-full" /></div>;
   if (!user) return <Navigate to="/login" />;
@@ -43,6 +44,11 @@ function ProtectedRoute({ children, roles, requireKyc = true }) {
     const kycStatus = user.kyc_status || 'pending';
     if (kycStatus === 'rejected') return <Navigate to="/verify-rejected" />;
     if (kycStatus !== 'verified') return <Navigate to="/verify-identity" />;
+  }
+
+  // Suitability gate: investors must complete the questionnaire before marketplace access
+  if (requireSuitability && user.role === 'investor' && !user.suitability_completed) {
+    return <Navigate to="/investor/suitability" replace />;
   }
 
   return <Layout>{children}</Layout>;
@@ -79,9 +85,10 @@ function AppRoutes() {
 
       {/* Investor */}
       <Route path="/investor" element={<ProtectedRoute roles={['investor']}><InvestorDashboard /></ProtectedRoute>} />
-      <Route path="/investor/marketplace" element={<ProtectedRoute roles={['investor']}><Marketplace /></ProtectedRoute>} />
-      <Route path="/investor/marketplace/:loanId" element={<ProtectedRoute roles={['investor']}><LoanDetail /></ProtectedRoute>} />
-      <Route path="/investor/secondary" element={<ProtectedRoute roles={['investor']}><SecondaryMarket /></ProtectedRoute>} />
+      <Route path="/investor/suitability" element={<ProtectedRoute roles={['investor']}><Suitability /></ProtectedRoute>} />
+      <Route path="/investor/marketplace" element={<ProtectedRoute roles={['investor']} requireSuitability><Marketplace /></ProtectedRoute>} />
+      <Route path="/investor/marketplace/:loanId" element={<ProtectedRoute roles={['investor']} requireSuitability><LoanDetail /></ProtectedRoute>} />
+      <Route path="/investor/secondary" element={<ProtectedRoute roles={['investor']} requireSuitability><SecondaryMarket /></ProtectedRoute>} />
       <Route path="/investor/yield" element={<ProtectedRoute roles={['investor']}><YieldHistory /></ProtectedRoute>} />
 
       {/* Admin */}

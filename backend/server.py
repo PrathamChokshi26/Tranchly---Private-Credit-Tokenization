@@ -212,6 +212,32 @@ async def get_me(request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     return {"user": user}
 
+# ============= INVESTOR SUITABILITY =============
+
+class SuitabilityRequest(BaseModel):
+    accept_principal_risk: bool
+    understand_targets: bool
+    can_hold_term: bool
+    income_band: str  # "under_75k" | "75k_200k" | "over_200k" | "prefer_not_to_say"
+
+@api_router.post("/users/me/suitability")
+async def submit_suitability(req: SuitabilityRequest, request: Request):
+    payload = await get_current_user(request)
+    if not (req.accept_principal_risk and req.understand_targets and req.can_hold_term):
+        raise HTTPException(status_code=400, detail="All risk acknowledgements are required")
+    valid_bands = {"under_75k", "75k_200k", "over_200k", "prefer_not_to_say"}
+    if req.income_band not in valid_bands:
+        raise HTTPException(status_code=400, detail="Invalid income band")
+    await db.users.update_one(
+        {"id": payload["sub"]},
+        {"$set": {
+            "suitability_completed": True,
+            "suitability_completed_at": datetime.now(timezone.utc).isoformat(),
+            "suitability_income_band": req.income_band,
+        }},
+    )
+    return {"success": True, "suitability_completed": True}
+
 # ============= KYC ENDPOINTS =============
 
 @api_router.get("/kyc/status")

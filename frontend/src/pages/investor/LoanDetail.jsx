@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import GradeBadge from '../../components/GradeBadge';
-import { ArrowLeft, DollarSign, Percent, Calendar, Users, CheckCircle2, Clock, AlertCircle, Zap } from 'lucide-react';
+import { ArrowLeft, DollarSign, Percent, Calendar, Users, CheckCircle2, Clock, AlertCircle, Zap, Shield, AlertTriangle, Info } from 'lucide-react';
 
 export default function LoanDetail() {
   const { loanId } = useParams();
@@ -120,6 +120,102 @@ export default function LoanDetail() {
             <p className="text-[11px] mt-3 text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
               <strong>Risk Warning:</strong> Loan default may result in partial or total loss of invested capital. Returns are not guaranteed.
             </p>
+          </div>
+
+          {/* Risk Analysis — default scenario, diversification, lateness timeline */}
+          <div className="bg-white rounded-xl border p-5 space-y-5" data-testid="risk-analysis-card">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-amber-600" />
+              <h3 className="font-bold text-gray-900">Risk Analysis</h3>
+            </div>
+
+            {/* 1. Default scenario (6 months in) */}
+            {(() => {
+              // Hypothetical default after 6 months: assume 50% of payments collected, reserve covers shortfall first
+              const monthsCollected = 6;
+              const totalPayments = monthlyPayment * term;
+              const collected = monthlyPayment * monthsCollected;
+              const remaining = Math.max(0, totalPayments - collected);
+              const principalCollectedApprox = (principal / term) * monthsCollected;
+              const principalOutstandingApprox = Math.max(0, principal - principalCollectedApprox);
+              const recoveredFromReserve = Math.min(reserveContribution, principalOutstandingApprox);
+              const lossPerLoan = Math.max(0, principalOutstandingApprox - recoveredFromReserve);
+              const sharePrice = loan.token_price || 1;
+              const totalShares = loan.total_tokens || 1;
+              const lossPerShare = lossPerLoan / totalShares;
+              const recoveryRate = principalOutstandingApprox > 0
+                ? ((principalCollectedApprox + recoveredFromReserve) / principal) * 100
+                : 100;
+              return (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4" data-testid="default-scenario-box">
+                  <p className="text-sm font-semibold text-red-900 mb-2">If this loan defaults after 6 months:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-500">Recovered from reserve</p>
+                      <p className="text-lg font-bold text-purple-700 tabular-nums">${recoveredFromReserve.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-500">Estimated loss per loan share</p>
+                      <p className="text-lg font-bold text-red-700 tabular-nums">${lossPerShare.toFixed(2)}</p>
+                      <p className="text-[10px] text-gray-400">of ${sharePrice} share price</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-500">Recovery rate estimate</p>
+                      <p className="text-lg font-bold text-emerald-700 tabular-nums">{recoveryRate.toFixed(1)}%</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2">Hypothetical scenario for educational purposes. Actual recovery varies based on collections, asset sales, and reserve fund balance.</p>
+                </div>
+              );
+            })()}
+
+            {/* 2. Diversification recommendation */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="diversification-box">
+              <div className="flex items-start gap-2">
+                <Shield size={16} className="text-blue-700 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">Diversify your portfolio</p>
+                  <p className="text-xs text-gray-700 mt-1">
+                    We recommend investing no more than <strong>10% of your portfolio</strong> in any single loan.
+                    Spreading capital across grades, industries, and terms reduces concentration risk.
+                  </p>
+                  <a
+                    href="https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins/investor-2"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs text-blue-700 font-semibold mt-2 hover:underline"
+                  >
+                    Learn about diversification →
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Lateness timeline */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4" data-testid="lateness-timeline-box">
+              <div className="flex items-center gap-2 mb-2">
+                <Info size={16} className="text-amber-700" />
+                <p className="text-sm font-semibold text-amber-900">What happens if a borrower is late</p>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-bold text-amber-800">If a payment is more than 15 days late:</p>
+                  <ul className="text-xs text-gray-700 list-disc list-inside ml-1 mt-1 space-y-0.5">
+                    <li>You will be notified immediately</li>
+                    <li>A late fee is charged to the borrower</li>
+                    <li>Loan enters monitoring status</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-red-800">If a payment is more than 60 days late:</p>
+                  <ul className="text-xs text-gray-700 list-disc list-inside ml-1 mt-1 space-y-0.5">
+                    <li>Loan enters default proceedings</li>
+                    <li>Reserve fund is activated</li>
+                    <li>Collections process initiated</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Funding Progress */}
