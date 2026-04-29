@@ -60,7 +60,7 @@ def _wrap_html(body_content: str, cta_text: str = "", cta_url: str = "") -> str:
             <span style="color:#ffffff;font-size:20px;font-weight:800;vertical-align:middle;margin-left:8px;">Tranchly</span>
           </td>
           <td style="text-align:right;">
-            <span style="color:#94a3b8;font-size:12px;">Private credit, tokenized.</span>
+            <span style="color:#94a3b8;font-size:12px;">Verified small-business cash flows. Transparent, fractional private credit.</span>
           </td>
         </tr></table>
       </td></tr>

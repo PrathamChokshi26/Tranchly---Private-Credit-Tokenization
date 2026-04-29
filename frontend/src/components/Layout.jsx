@@ -18,7 +18,7 @@ const investorNav = [
   { path: '/investor', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/investor/marketplace', icon: Store, label: 'Marketplace' },
   { path: '/investor/secondary', icon: Wallet, label: 'Secondary Market' },
-  { path: '/investor/yield', icon: TrendingUp, label: 'Yield History' },
+  { path: '/investor/yield', icon: TrendingUp, label: 'Repayment Distributions' },
 ];
 
 const adminNav = [

@@ -25,7 +25,13 @@ export default function Marketplace() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Loan Marketplace</h1>
-        <p className="text-gray-500 text-sm">Browse vetted SME loans and invest in fractional tokens</p>
+        <p className="text-gray-500 text-sm">Browse vetted SME loans and invest in fractional loan shares</p>
+      </div>
+
+      {/* Investor disclaimer banner */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800" data-testid="marketplace-disclaimer-banner">
+        <strong>Important:</strong> Tranchly loan investments are not FDIC insured and may result in loss of principal.
+        Returns are not guaranteed. Past performance does not predict future results.
       </div>
 
       {/* Filters */}
@@ -53,6 +59,16 @@ export default function Marketplace() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {loans.map(loan => {
             const pct = loan.percent_funded || 0;
+            // Compute DSCR (monthly_revenue / monthly_payment) and Reserve Coverage (%)
+            const monthlyRate = (loan.interest_rate || 0) / 100 / 12;
+            const term = loan.term_months || 12;
+            const principal = loan.loan_amount_approved || 0;
+            const monthlyPayment = monthlyRate > 0
+              ? (principal * (monthlyRate * Math.pow(1 + monthlyRate, term))) / (Math.pow(1 + monthlyRate, term) - 1)
+              : (principal / term);
+            const dscr = monthlyPayment > 0 && loan.monthly_revenue ? (loan.monthly_revenue / monthlyPayment) : null;
+            const reserveContribution = loan.reserve_fund_contribution || (principal * 0.03);
+            const reserveCoveragePct = principal > 0 ? (reserveContribution / principal * 100) : 0;
             return (
               <Link key={loan.id} to={`/investor/marketplace/${loan.id}`}
                 className="bg-white rounded-xl border p-5 hover:shadow-lg hover:border-purple-200 transition-all group">
@@ -66,7 +82,7 @@ export default function Marketplace() {
 
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   <div>
-                    <p className="text-xs text-gray-400">APR</p>
+                    <p className="text-xs text-gray-400">Target APR</p>
                     <p className="font-bold text-emerald-600">{loan.interest_rate}%</p>
                   </div>
                   <div>
@@ -74,15 +90,27 @@ export default function Marketplace() {
                     <p className="font-bold">{loan.term_months}mo</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Token</p>
+                    <p className="text-xs text-gray-400">Share Price</p>
                     <p className="font-bold">${loan.token_price}</p>
+                  </div>
+                </div>
+
+                {/* Risk metrics */}
+                <div className="grid grid-cols-2 gap-2 mb-4 p-2.5 bg-gray-50 rounded-lg" data-testid={`risk-metrics-${loan.id}`}>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500">DSCR</p>
+                    <p className="text-sm font-bold text-gray-800 tabular-nums">{dscr ? `${dscr.toFixed(2)}x` : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500">Reserve Coverage</p>
+                    <p className="text-sm font-bold text-purple-700 tabular-nums">{reserveCoveragePct.toFixed(1)}%</p>
                   </div>
                 </div>
 
                 <div className="mb-3">
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-gray-500">{pct}% funded</span>
-                    <span className="text-gray-500">{loan.tokens_available} tokens left</span>
+                    <span className="text-gray-500">{loan.tokens_available} loan shares left</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div className={`h-2 rounded-full transition-all ${
@@ -91,12 +119,16 @@ export default function Marketplace() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-semibold text-gray-700">${loan.loan_amount_approved?.toLocaleString()}</p>
                   <span className="text-sm text-purple-600 font-medium flex items-center gap-1 group-hover:gap-2 transition-all">
                     View <ArrowRight size={14} />
                   </span>
                 </div>
+
+                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug" data-testid={`risk-warning-${loan.id}`}>
+                  <strong>Risk Warning:</strong> Loan default may result in partial or total loss of invested capital.
+                </p>
               </Link>
             );
           })}

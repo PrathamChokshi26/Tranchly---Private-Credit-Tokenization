@@ -59,7 +59,7 @@ export default function Signup() {
               }`}>
               <TrendingUp size={24} className={form.role === 'investor' ? 'text-purple-600' : 'text-gray-400'} />
               <p className="font-semibold text-sm mt-2">I'm an Investor</p>
-              <p className="text-xs text-gray-500">Earn yield on loan tokens</p>
+              <p className="text-xs text-gray-500">Receive repayment distributions from real business loans</p>
             </button>
           </div>
 

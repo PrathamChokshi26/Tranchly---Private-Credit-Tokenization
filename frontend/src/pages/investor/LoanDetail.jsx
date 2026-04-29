@@ -41,6 +41,17 @@ export default function LoanDetail() {
   const fundingPct = loan.total_tokens > 0 ? Math.round(loan.tokens_sold / loan.total_tokens * 100) : 0;
   const projectedYield = (tokenCount * loan.token_price * loan.interest_rate / 100 * loan.term_months / 12);
 
+  // V2 risk metrics
+  const monthlyRate = (loan.interest_rate || 0) / 100 / 12;
+  const term = loan.term_months || 12;
+  const principal = loan.loan_amount_approved || 0;
+  const monthlyPayment = monthlyRate > 0
+    ? (principal * (monthlyRate * Math.pow(1 + monthlyRate, term))) / (Math.pow(1 + monthlyRate, term) - 1)
+    : (principal / term);
+  const dscr = monthlyPayment > 0 && loan.monthly_revenue ? (loan.monthly_revenue / monthlyPayment) : null;
+  const reserveContribution = loan.reserve_fund_contribution || (principal * 0.03);
+  const reserveCoveragePct = principal > 0 ? (reserveContribution / principal * 100) : 0;
+
   return (
     <div className="space-y-6">
       <Link to="/investor/marketplace" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 text-sm">
@@ -70,7 +81,7 @@ export default function LoanDetail() {
               <div className="bg-gray-50 rounded-lg p-3">
                 <Percent size={16} className="text-emerald-500 mb-1" />
                 <p className="text-lg font-bold">{loan.interest_rate}%</p>
-                <p className="text-xs text-gray-500">APR</p>
+                <p className="text-xs text-gray-500">Target APR</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-3">
                 <Calendar size={16} className="text-blue-500 mb-1" />
@@ -80,9 +91,34 @@ export default function LoanDetail() {
               <div className="bg-gray-50 rounded-lg p-3">
                 <Users size={16} className="text-teal-500 mb-1" />
                 <p className="text-lg font-bold">{loan.tokens_sold}</p>
-                <p className="text-xs text-gray-500">Investors</p>
+                <p className="text-xs text-gray-500">Loan Shares Sold</p>
               </div>
             </div>
+          </div>
+
+          {/* V2 Risk Metrics */}
+          <div className="bg-white rounded-xl border p-5" data-testid="loan-detail-risk-metrics">
+            <h3 className="font-semibold mb-3">Risk Metrics</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Debt Service Coverage Ratio</p>
+                <p className="text-lg font-bold tabular-nums">{dscr ? `${dscr.toFixed(2)}x` : '—'}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">monthly revenue ÷ monthly payment</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Reserve Coverage</p>
+                <p className="text-lg font-bold text-purple-700 tabular-nums">{reserveCoveragePct.toFixed(1)}%</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">${reserveContribution.toLocaleString()} contributed</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Grade</p>
+                <p className="text-lg font-bold tabular-nums">{loan.grade || '—'}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">credit grade</p>
+              </div>
+            </div>
+            <p className="text-[11px] mt-3 text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
+              <strong>Risk Warning:</strong> Loan default may result in partial or total loss of invested capital. Returns are not guaranteed.
+            </p>
           </div>
 
           {/* Funding Progress */}
@@ -94,7 +130,7 @@ export default function LoanDetail() {
             <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
               <div className="h-3 rounded-full bg-gradient-to-r from-purple-500 to-teal-400" style={{ width: `${fundingPct}%` }} />
             </div>
-            <p className="text-sm text-gray-500">{loan.tokens_sold} of {loan.total_tokens} tokens sold • {tokensAvailable} remaining</p>
+            <p className="text-sm text-gray-500">{loan.tokens_sold} of {loan.total_tokens} loan shares sold • {tokensAvailable} remaining</p>
           </div>
 
           {/* Repayment Schedule */}
@@ -126,11 +162,11 @@ export default function LoanDetail() {
             {tokensAvailable > 0 && user?.role === 'investor' ? (
               <>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Tokens</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Loan Shares</label>
                   <input type="number" min={1} max={tokensAvailable} value={tokenCount}
                     onChange={e => setTokenCount(Math.min(Math.max(1, parseInt(e.target.value) || 1), tokensAvailable))}
                     className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-lg font-bold" />
-                  <p className="text-xs text-gray-400 mt-1">Max: {tokensAvailable} tokens @ ${loan.token_price} each</p>
+                  <p className="text-xs text-gray-400 mt-1">Max: {tokensAvailable} shares @ ${loan.token_price} each</p>
                 </div>
 
                 <div className="bg-gray-50 rounded-lg p-4 space-y-2 mb-4">
@@ -139,11 +175,11 @@ export default function LoanDetail() {
                     <span className="font-bold">${(tokenCount * loan.token_price).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Projected Yield</span>
+                    <span className="text-gray-500">Target Return</span>
                     <span className="font-bold text-emerald-600">${projectedYield.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">APR</span>
+                    <span className="text-gray-500">Target APR</span>
                     <span className="font-bold">{loan.interest_rate}%</span>
                   </div>
                 </div>
@@ -153,12 +189,16 @@ export default function LoanDetail() {
                   {investing ? 'Processing...' : `Invest $${(tokenCount * loan.token_price).toLocaleString()}`}
                 </button>
 
+                <p className="text-[10px] text-gray-400 mt-2 leading-snug">
+                  Returns are not guaranteed. Principal is at risk. Past performance does not predict future results.
+                </p>
+
                 {result && (
                   <div className={`mt-3 p-3 rounded-lg text-sm ${result.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                     {result.success ? (
                       <div>
                         <p className="font-semibold flex items-center gap-1"><CheckCircle2 size={14} /> Investment Successful!</p>
-                        <p className="text-xs mt-1 font-mono">TX: {result.tx_hash?.slice(0, 20)}...</p>
+                        <p className="text-xs mt-1 font-mono">Verified TX: {result.tx_hash?.slice(0, 20)}...</p>
                       </div>
                     ) : (
                       <p className="flex items-center gap-1"><AlertCircle size={14} /> {result.error}</p>

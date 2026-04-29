@@ -19,10 +19,10 @@ export default function CapitalPassport() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Capital Passport</h1>
-        <p className="text-gray-500 text-sm">Your on-chain credit identity</p>
+        <p className="text-gray-500 text-sm">Your verified business credit identity</p>
       </div>
 
-      {/* NFT-Style Card */}
+      {/* Identity Card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0f172a] to-[#1e293b] text-white p-8 shadow-2xl">
         <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/20 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl" />
@@ -34,7 +34,7 @@ export default function CapitalPassport() {
               <span className="text-sm font-bold tracking-wider text-purple-300">CAPITAL PASSPORT</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-400">NFT #</span>
+              <span className="text-xs text-slate-400">ID</span>
               <span className="text-xs font-mono text-slate-300">{passport?.wallet_address?.slice(0, 10)}...</span>
             </div>
           </div>
@@ -75,7 +75,7 @@ export default function CapitalPassport() {
               <Star size={12} className="text-amber-400" /> Verified Borrower
             </div>
             <div>Member since {passport?.member_since ? new Date(passport.member_since).toLocaleDateString() : 'Today'}</div>
-            <div className="ml-auto">Polygon Network</div>
+            <div className="ml-auto">Verified Identity</div>
           </div>
         </div>
       </div>

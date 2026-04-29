@@ -65,7 +65,7 @@ export default function LoanTracker() {
       <div className="bg-white rounded-xl border p-5">
         <div className="flex justify-between items-center mb-2">
           <h3 className="font-semibold text-gray-900">Funding Progress</h3>
-          <span className="text-sm font-medium">{fundingPct}% • {loan.tokens_sold}/{loan.total_tokens} tokens</span>
+          <span className="text-sm font-medium">{fundingPct}% • {loan.tokens_sold}/{loan.total_tokens} loan shares</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-3">
           <div className="h-3 rounded-full bg-gradient-to-r from-purple-500 to-teal-400 transition-all" style={{ width: `${fundingPct}%` }} />

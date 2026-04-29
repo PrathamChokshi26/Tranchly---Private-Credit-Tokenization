@@ -28,7 +28,7 @@ export default function SecondaryMarket() {
     setActionLoading(true);
     try {
       await api.post('/api/marketplace/list-token', { token_id: tokenId, asking_price: parseFloat(askingPrice) });
-      setMessage({ type: 'success', text: 'Token listed for sale!' });
+      setMessage({ type: 'success', text: 'Loan share listed for sale!' });
       setSellModal(null);
       setAskingPrice('');
       fetchData();
@@ -43,7 +43,7 @@ export default function SecondaryMarket() {
     setActionLoading(true);
     try {
       const res = await api.post('/api/marketplace/buy-listing', { listing_id: listingId });
-      setMessage({ type: 'success', text: `Token purchased! TX: ${res.data.tx_hash?.slice(0, 20)}...` });
+      setMessage({ type: 'success', text: `Loan share purchased! Verified TX: ${res.data.tx_hash?.slice(0, 20)}...` });
       fetchData();
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.detail || 'Purchase failed' });
@@ -60,7 +60,12 @@ export default function SecondaryMarket() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Secondary Marketplace</h1>
-        <p className="text-gray-500 text-sm">Buy and sell loan tokens from other investors</p>
+        <p className="text-gray-500 text-sm">Buy and sell loan shares from other investors</p>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800" data-testid="secondary-disclaimer-banner">
+        <strong>Important:</strong> Tranchly loan investments are not FDIC insured and may result in loss of principal.
+        Returns are not guaranteed. Past performance does not predict future results.
       </div>
 
       {message && (
@@ -76,7 +81,7 @@ export default function SecondaryMarket() {
           <ShoppingCart size={14} className="inline mr-1" /> Browse Listings ({listings.length})
         </button>
         <button onClick={() => setTab('sell')} className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === 'sell' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
-          <Tag size={14} className="inline mr-1" /> My Tokens ({sellableTokens.length})
+          <Tag size={14} className="inline mr-1" /> My Loan Shares ({sellableTokens.length})
         </button>
       </div>
 
@@ -84,7 +89,7 @@ export default function SecondaryMarket() {
         listings.length === 0 ? (
           <div className="bg-white rounded-xl border p-12 text-center">
             <ShoppingCart size={48} className="mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500">No tokens listed for sale</p>
+            <p className="text-gray-500">No loan shares listed for sale</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -107,11 +112,11 @@ export default function SecondaryMarket() {
                     <p className="font-bold text-lg text-gray-400">${l.original_price}</p>
                   </div>
                 </div>
-                <p className="text-xs text-gray-400 mb-3">APR: {l.loan?.interest_rate}%</p>
+                <p className="text-xs text-gray-400 mb-3">Target APR: {l.loan?.interest_rate}%</p>
                 {l.seller_id !== user?.id && (
                   <button onClick={() => handleBuy(l.id)} disabled={actionLoading}
                     className="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
-                    Buy Token
+                    Buy Loan Share
                   </button>
                 )}
               </div>
@@ -122,14 +127,14 @@ export default function SecondaryMarket() {
         sellableTokens.length === 0 ? (
           <div className="bg-white rounded-xl border p-12 text-center">
             <Tag size={48} className="mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500">No tokens available to sell</p>
+            <p className="text-gray-500">No loan shares available to sell</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sellableTokens.map(t => (
               <div key={t.id} className="bg-white rounded-xl border p-5">
                 <p className="font-semibold text-gray-900">{t.loan?.business_name}</p>
-                <p className="text-sm text-gray-500">Token #{t.token_index} • Paid ${t.price}</p>
+                <p className="text-sm text-gray-500">Share #{t.token_index} • Paid ${t.price}</p>
                 <GradeBadge grade={t.loan?.grade} size="sm" />
                 
                 {sellModal === t.id ? (
