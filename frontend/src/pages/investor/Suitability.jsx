@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Shield, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { errToString } from '../../lib/errors';
 
 const INCOME_BANDS = [
   { value: 'under_75k', label: 'Under $75,000' },
@@ -45,7 +46,7 @@ export default function Suitability() {
       if (refreshUser) await refreshUser();
       navigate('/investor/marketplace', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not save your responses. Please try again.');
+      setError(errToString(err, 'Could not save your responses. Please try again.'));
     } finally {
       setSubmitting(false);
     }

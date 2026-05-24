@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { CheckCircle2, Loader2, Building2, AlertTriangle } from 'lucide-react';
+import { errToString } from '../lib/errors';
 
 export default function PlaidLink({ api, onSuccess, onError }) {
   const [linkToken, setLinkToken] = useState(null);
@@ -33,7 +34,7 @@ export default function PlaidLink({ api, onSuccess, onError }) {
         if (error.response?.status === 401) {
           setError('Authentication required. Please log in again.');
         } else {
-          setError(error.response?.data?.detail || error.message || 'Failed to initialize Plaid');
+          setError(errToString(error, error.message || 'Failed to initialize Plaid'));
         }
         
         if (onError) onError(error);
@@ -65,7 +66,7 @@ export default function PlaidLink({ api, onSuccess, onError }) {
         if (onSuccess) onSuccess(analysisRes.data);
       } catch (error) {
         console.error('[Plaid] Analysis failed:', error);
-        setError(error.response?.data?.detail || 'Failed to analyze banking data');
+        setError(errToString(error, 'Failed to analyze banking data'));
         if (onError) onError(error);
       } finally {
         setAnalyzing(false);

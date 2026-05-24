@@ -1,4 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -46,6 +48,22 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+# ─── Global Pydantic validation error handler ────────────────────────────
+# FastAPI's default 422 returns `{"detail": [{type, loc, msg, input, url}, ...]}`.
+# That structure crashed the React frontend ("Objects are not valid as a React child").
+# Coerce it to a single human-readable string under `detail` so the UI can render it.
+@app.exception_handler(RequestValidationError)
+async def _on_validation_error(_request: Request, exc: RequestValidationError):
+    msgs = []
+    for err in exc.errors():
+        loc = " → ".join(str(p) for p in err.get("loc", []) if p not in ("body",))
+        msg = err.get("msg") or "invalid value"
+        msgs.append(f"{loc}: {msg}" if loc else msg)
+    detail = "; ".join(msgs) or "Invalid request"
+    logger.warning(f"[ValidationError] {detail}")
+    return JSONResponse(status_code=422, content={"detail": detail})
+
 # Persona KYC Config
 PERSONA_API_KEY = os.environ.get('PERSONA_API_KEY', '')
 PERSONA_TEMPLATE_ID = os.environ.get('PERSONA_TEMPLATE_ID', '')
@@ -89,23 +107,23 @@ class StripeDataInput(BaseModel):
     revenue_concentration: Optional[float] = None
 
 class LoanApplicationRequest(BaseModel):
-    # Step 1 - Business Info
-    business_name: str
-    industry: str
-    years_operating: float
+    # Step 1 - Business Info (all optional with safe defaults; backend validates business logic)
+    business_name: Optional[str] = ""
+    industry: Optional[str] = "other"
+    years_operating: Optional[float] = 0.0
     loan_amount_requested: Optional[float] = None
     loan_amount: Optional[float] = None
-    loan_purpose: str
-    personal_guarantee: bool = False
-    business_assets: float = 0.0
-    bureau_score: float = 650.0
-    
+    loan_purpose: Optional[str] = ""
+    personal_guarantee: Optional[bool] = False
+    business_assets: Optional[float] = 0.0
+    bureau_score: Optional[float] = 650.0
+
     # Step 2 - Data connections
     plaid_connected: Optional[bool] = False
     plaid_data: Optional[PlaidDataInput] = None
     stripe_connected: Optional[bool] = False
     stripe_data: Optional[StripeDataInput] = None
-    
+
     # Manual fallback fields (used if Plaid not connected)
     monthly_revenue: Optional[float] = None
     avg_monthly_revenue: Optional[float] = None
@@ -119,6 +137,9 @@ class LoanApplicationRequest(BaseModel):
     payroll_consistency: Optional[float] = None
     customer_retention: Optional[float] = None
     industry_risk: Optional[float] = None
+
+    # Allow extra fields silently — frontend may send keys we haven't modeled yet
+    model_config = {"extra": "ignore"}
 
 class InvestRequest(BaseModel):
     loan_id: str

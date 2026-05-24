@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Loader2, CreditCard, AlertTriangle, ExternalLink } from 'lucide-react';
+import { errToString } from '../lib/errors';
 
 export default function StripeConnect({ api, onSuccess, onError }) {
   const [connecting, setConnecting] = useState(false);
@@ -22,7 +23,7 @@ export default function StripeConnect({ api, onSuccess, onError }) {
       setShowInstructions(true);
       setConnecting(false);
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || 'Failed to connect Stripe account';
+      const errorMsg = errToString(err, 'Failed to connect Stripe account');
       setError(errorMsg);
       if (onError) onError(err);
       setConnecting(false);
@@ -48,7 +49,7 @@ export default function StripeConnect({ api, onSuccess, onError }) {
 
       if (onSuccess) onSuccess(analysisRes.data);
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || 'Failed to connect Stripe account';
+      const errorMsg = errToString(err, 'Failed to connect Stripe account');
       setError(errorMsg);
       if (onError) onError(err);
     } finally {

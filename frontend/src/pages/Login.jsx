@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { errToString } from '../lib/errors';
 
 export default function Login() {
   const { login } = useAuth();
@@ -20,7 +21,7 @@ export default function Login() {
       const user = await login(email, password);
       navigate(user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(errToString(err, 'Login failed'));
     } finally {
       setLoading(false);
     }

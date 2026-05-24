@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, ArrowRight, Landmark, TrendingUp } from 'lucide-react';
+import { errToString } from '../lib/errors';
 
 export default function Signup() {
   const { signup } = useAuth();
@@ -22,7 +23,7 @@ export default function Signup() {
       const user = await signup(form.email, form.password, form.full_name, form.role);
       navigate(user.role === 'admin' ? '/admin' : user.role === 'investor' ? '/investor' : '/borrower');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Signup failed');
+      setError(errToString(err, 'Signup failed'));
     } finally {
       setLoading(false);
     }

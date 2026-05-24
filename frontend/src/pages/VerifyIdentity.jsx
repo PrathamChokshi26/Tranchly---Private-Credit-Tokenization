@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Shield, Loader2, CheckCircle2, AlertCircle, XCircle, Lock } from 'lucide-react';
+import { errToString } from '../lib/errors';
 
 const PERSONA_TEMPLATE_ID = process.env.REACT_APP_PERSONA_TEMPLATE_ID;
 const PERSONA_ENV = process.env.REACT_APP_PERSONA_ENV || 'sandbox';
@@ -99,7 +100,7 @@ export default function VerifyIdentity() {
       }
     } catch (err) {
       setStatus('failed');
-      setError(err.response?.data?.detail || 'Failed to complete verification.');
+      setError(errToString(err, 'Failed to complete verification.'));
     }
   };
 
@@ -114,7 +115,7 @@ export default function VerifyIdentity() {
       }
     } catch (err) {
       setStatus('failed');
-      setError(err.response?.data?.detail || 'Skip failed.');
+      setError(errToString(err, 'Skip failed.'));
     }
   };
 

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ArrowRight, AlertTriangle, CheckCircle2, ArrowLeft, Award, Shield } from 'lucide-react';
 import PlaidLink from '../../components/PlaidLink';
 import StripeConnect from '../../components/StripeConnect';
+import { errToString } from '../../lib/errors';
 
 const industries = ['Technology', 'Healthcare', 'Retail', 'Food & Beverage', 'Manufacturing', 'Construction', 'Real Estate', 'Professional Services', 'Education', 'Transportation', 'Agriculture', 'Entertainment', 'E-Commerce', 'SaaS', 'Fintech', 'Other'];
 
@@ -98,7 +99,7 @@ export default function LoanApplication() {
       const res = await api.post('/api/loans/apply', submissionData);
       navigate('/borrower/results', { state: { result: res.data } });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Application failed');
+      setError(errToString(err, 'Application failed'));
     } finally {
       setLoading(false);
     }
