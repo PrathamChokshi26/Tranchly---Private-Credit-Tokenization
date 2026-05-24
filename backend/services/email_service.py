@@ -1,6 +1,6 @@
 """
 Tranchly Email Service — powered by Resend
-Handles all 6 platform email notifications with exceptional HTML templates.
+Handles all 6 platform email notifications with branded HTML templates.
 """
 
 import os
